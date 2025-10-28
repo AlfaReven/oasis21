@@ -7,8 +7,14 @@ import os
 from world import *
 
 class Player(Entities):
-    def __init__(self, x, y):
+    def __init__(self, x, y, player_id=0, control_type="keyboard", joypad_id=0):
         super().__init__(x, y, "Player.png")  
+        
+        # NUEVO: Atributos para multijugador
+        self.player_id = player_id
+        self.control_type = control_type
+        self.joypad_id = joypad_id
+        
         self.stats.update({
             'force': BASE_FORCE * 10,  
             'health': MAX_HEALTH,
@@ -44,6 +50,18 @@ class Player(Entities):
         self.special_animation_timer = 0
         self.special_animation_delay = AXE_ANIMATION_DELAY
         self.tool_animations = self.load_tool_animations()
+        
+        # NUEVO: Color diferente para cada jugador
+        if player_id == 0:
+            # Jugador 1 - Azul
+            color_filter = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
+            color_filter.fill((0, 0, 255, 50))  # Azul semi-transparente
+            self.image.blit(color_filter, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+        else:
+            # Jugador 2 - Rojo/Naranja
+            color_filter = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
+            color_filter.fill((255, 100, 0, 50))  # Naranja semi-transparente
+            self.image.blit(color_filter, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
     
     def load_item_image(self, filename):
         path = os.path.join('assets', 'images', filename)
@@ -67,9 +85,7 @@ class Player(Entities):
             for direction, row in directions.items():
                 frames = []
                 for frame in range(AXE_FRAMES):
-
                     temp_surface = pygame.Surface((ACTION_FRAME_SIZE, ACTION_FRAME_SIZE), pygame.SRCALPHA)
-        
                     x = (frame % AXE_COLS) * ACTION_FRAME_SIZE
                     frame_rect = pygame.Rect(x, row * ACTION_FRAME_SIZE, ACTION_FRAME_SIZE, ACTION_FRAME_SIZE)
                     temp_surface.blit(self.action_sprite_sheet, (0, 0), frame_rect)
@@ -79,7 +95,6 @@ class Player(Entities):
                     scaled_temp = pygame.transform.scale(temp_surface, (action_size, action_size))
                     surface = pygame.Surface((ENTITY, ENTITY), pygame.SRCALPHA)
                     
-
                     offset_x = (ENTITY - action_size) // 2
                     offset_y = (ENTITY - action_size) // 2
                     
@@ -154,7 +169,6 @@ class Player(Entities):
             return
         super().update_animation(dt)
     
-    
     def draw(self, screen, camera_x, camera_y):
         #lo primero es dibujar a eduardo pero centrado en chunnk
         screen_x = self.x - camera_x
@@ -166,29 +180,61 @@ class Player(Entities):
             current_image = pygame.transform.flip(current_image, True, False)
         
         screen.blit(current_image, (screen_x, screen_y))
+        
+        # NUEVO: Dibujar identificador del jugador
+        if hasattr(self, 'player_id'):
+            player_text = self.font.render(f"P{self.player_id + 1}", True, (255, 255, 255))
+            screen.blit(player_text, (screen_x, screen_y - 20))
     
     def update(self, dt, obstacles):
         if self.special_animation:
             self.moving = False
             return
             
+        # NUEVO: Control diferente según tipo de control
+        if self.control_type == "keyboard":
+            self.handle_keyboard_input(dt, obstacles)
+        else:
+            self.handle_joypad_input(dt, obstacles)
+    
+    def handle_keyboard_input(self, dt, obstacles):
+        """Maneja entrada de teclado para ambos jugadores"""
         keys = pygame.key.get_pressed()
         
-        #PARA SABER SI EDUARDO ANDA CORRIENDO 
-        self.is_running = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        # PARA SABER SI EDUARDO ANDA CORRIENDO 
+        if self.player_id == 0:
+            # Jugador 1: Shift para correr
+            self.is_running = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        else:
+            # Jugador 2: Ctrl derecho para correr
+            self.is_running = keys[pygame.K_RCTRL]
+        
         current_speed = self.speed * 2 if self.is_running else self.speed
 
         dx, dy = 0, 0
-        if keys[pygame.K_w] or keys[pygame.K_UP]:
-            dy = -5
-        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
-            dy = 5
-        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
-            dx = -5
-        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-            dx = 5
         
-        #Y TAMBIEN PARA SABER SI SE MUEVE EN DIAGONAL USANDO LA RAZON DE ANGULOS DE 1 SQRT 2
+        # Jugador 1 usa WASD, Jugador 2 usa Flechas
+        if self.player_id == 0:
+            if keys[pygame.K_w]:
+                dy = -5
+            if keys[pygame.K_s]:
+                dy = 5
+            if keys[pygame.K_a]:
+                dx = -5
+            if keys[pygame.K_d]:
+                dx = 5
+        else:
+            # Jugador 2 usa flechas
+            if keys[pygame.K_UP]:
+                dy = -5
+            if keys[pygame.K_DOWN]:
+                dy = 5
+            if keys[pygame.K_LEFT]:
+                dx = -5
+            if keys[pygame.K_RIGHT]:
+                dx = 5
+        
+        # Movimiento diagonal
         if dx != 0 and dy != 0:
             dx *= 0.7071
             dy *= 0.7071
@@ -197,15 +243,12 @@ class Player(Entities):
             self.move(dx * current_speed, dy * current_speed, obstacles)
         else:
             self.moving = False
-            
-            #si eduardo no se mueve entonces solo mantener la posicion en la que etsa mirando
             if self.current_state == WALK_DOWN:
                 self.current_state = IDLE_DOWN
             elif self.current_state == WALK_UP:
                 self.current_state = IDLE_UP
             elif self.current_state == WALK_RIGHT:
                 self.current_state = IDLE_RIGHT
-    
     
     """Esta cosa lo que hace es saber si eduardo esta interactuando con el mundo"""
     def interact(self, world):
@@ -271,8 +314,13 @@ class Player(Entities):
         bar_width = 100
         bar_height = 10
         x_offset = 10
-        y_offset = 50
+        y_offset = 50 + (self.player_id * 80)  # NUEVO: Offset diferente por jugador
         
+        # NUEVO: Etiqueta del jugador
+        player_label = self.font.render(f"Jugador {self.player_id + 1}", True, 
+                                      (0, 100, 255) if self.player_id == 0 else (255, 100, 0))
+        screen.blit(player_label, (x_offset, y_offset - 20))
+
         # Energía
         pygame.draw.rect(screen, BAR_BACKGROUND, (x_offset, y_offset, bar_width, bar_height))
         pygame.draw.rect(screen, ENERGY_COLOR, (x_offset, y_offset, bar_width * (self.energy / MAX_ENERGY), bar_height))
@@ -326,7 +374,7 @@ class Player(Entities):
         self.stats['max_health'] += 10
         self.stats['health'] = self.stats['max_health']
         self.stats['force'] += 2
-        print(f"¡Nivel up! Ahora eres nivel {self.stats['level']}")
+        print(f"¡Nivel up! Jugador {self.player_id + 1} ahora es nivel {self.stats['level']}")
     
 
     def place_object(self, world):
