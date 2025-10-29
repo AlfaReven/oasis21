@@ -13,8 +13,8 @@ class WorldChunk:
     def __init__(self, x, y, width, height, world_reference=None):
         self.x = x
         self.y = y
-        self.width = width
-        self.height = height
+        self.width = CHUNK_WIDTH
+        self.height = CHUNK_HEIGHT
         self.world = world_reference  # Referencia al mundo para acceder al TMX
         self.farmland_tiles = {}
         self.water_tiles = {}
@@ -28,6 +28,8 @@ class WorldChunk:
         
         # CHUNK INICIAL (0,0) - USAR TMX Y NO GENERAR NADA
         if x == 0 and y == 0:
+            self.width = 1536
+            self.height = 1024
             # CHUNK VACÍO - solo el tilemap TMX
             self.trees = []
             self.small_stones = []
@@ -35,6 +37,8 @@ class WorldChunk:
             self.iron_minerals = []
             self.water_tiles = {}  # Limpiar agua también
         else:
+            self.width = CHUNK_WIDTH
+            self.height = CHUNK_HEIGHT
             # CHUNKS NORMALES para el resto del mundo
             self.trees = [
                 Tree(self.x + random.randint(50, width - constants.TREE - 50), 
@@ -210,7 +214,8 @@ class WorldChunk:
 
 class World:
     def __init__(self, width, height):
-        self.chunk_size = constants.CHUNK_SIZE
+        self.chunk_width = CHUNK_WIDTH
+        self.chunk_height = CHUNK_HEIGHT
         self.active_chunks = {}  
         self.inactive_chunks = {}
         #nuevo atributo para items que se pueden colocar
@@ -250,15 +255,14 @@ class World:
             print(f"❌ Error cargando TMX: {e}")
             self.tmx_map = None
     
-    def draw_tmx_map_full(self, screen):
-        """Dibuja todo el TMX sin recortar ni mover con la cámara."""
+    def draw_tmx_map_full(self, screen, camera_x, camera_y):
+        """Dibuja todo el TMX desplazándose correctamente con la cámara."""
         if not self.tmx_map:
             return
 
         tile_width = self.tmx_map.tilewidth
         tile_height = self.tmx_map.tileheight
 
-        # Dibuja cada capa en orden
         for layer in self.tmx_map.visible_layers:
             if hasattr(layer, 'data'):
                 layer_index = self.tmx_map.layers.index(layer)
@@ -268,13 +272,17 @@ class World:
                         if tile:
                             image = self.tmx_map.get_tile_image(x, y, layer_index)
                             if image:
-                                screen.blit(image, (x * tile_width, y * tile_height))
+                                # 🔥 aplicar desplazamiento de cámara
+                                screen.blit(image, 
+                                    (x * tile_width - camera_x, 
+                                    y * tile_height - camera_y))
+
 
     
     
     def get_chunk_key(self, x, y):
-        chunk_x = x // self.chunk_size
-        chunk_y = y // self.chunk_size
+        chunk_x = x // CHUNK_WIDTH
+        chunk_y = y // CHUNK_HEIGHT
         return (chunk_x, chunk_y)
     
     def generate_chunk(self, chunk_x, chunk_y):
@@ -284,10 +292,10 @@ class World:
                 self.active_chunks[key] = self.inactive_chunks[key]
                 del self.inactive_chunks[key]
             else:
-                x = chunk_x * self.chunk_size
-                y = chunk_y * self.chunk_size
+                x = chunk_x * self.chunk_width
+                y = chunk_y * self.chunk_height
                 # Pasar referencia del mundo al chunk
-                self.active_chunks[key] = WorldChunk(x, y, self.chunk_size, self.chunk_size, self)
+                self.active_chunks[key] = WorldChunk(x, y, self.chunk_width, self.chunk_height, self)
     
     def update_chunks(self, player_x, player_y):
         current_chunk = self.get_chunk_key(player_x, player_y)
@@ -350,7 +358,7 @@ class World:
         """Dibujar el mundo"""
         # Dibujar TMX primero (si está cargado)
         if self.tmx_map:
-            self.draw_tmx_map_full(screen)
+            self.draw_tmx_map_full(screen, camera_x, camera_y)
         
         # Luego dibujar chunks normales (excepto el 0,0 que ya dibujó el TMX)
         for chunk in self.active_chunks.values():  
