@@ -5,6 +5,8 @@ import random
 from inventory import Inventory
 import os
 from world import *
+from placeable import CraftingTable
+
 
 class Player(Entities):
     def __init__(self, x, y, player_id=0, control_type="keyboard", joypad_id=0):
@@ -26,6 +28,8 @@ class Player(Entities):
         
         # APARTADO PARA ATRIBUTOS DEL INVENTARIO DE EDUARDO
         self.inventory = Inventory()
+        self._give_starter_items()
+        
         self.show_inventory = False
         self.item_images = {
             "wood": self.load_item_image("woods.png"),
@@ -62,6 +66,34 @@ class Player(Entities):
             color_filter = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
             color_filter.fill((255, 100, 0, 50))  # Naranja semi-transparente
             self.image.blit(color_filter, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+            
+    #ESTO LO PONGO POR CUESTRIONES DE DESARROLLO YA DESPUES LO QUITARE
+    # --- KIT DE DESARROLLO INICIAL ---
+        
+
+
+
+    def _give_starter_items(self):
+        """Provee materiales iniciales al jugador (solo para pruebas)."""
+        print("🧰 Cargando kit de inicio para pruebas...")
+
+        starter_items = {
+            'wood': 20,
+            'stone': 15,
+            'mineral_iron': 10,
+            'ingot_iron': 5,
+            'axe': 1,
+            'work_bench': 1,
+            'furnace': 1,
+            'pala': 1
+        }
+
+        for item_name, qty in starter_items.items():
+            if item_name in self.inventory.item_images:
+                self.inventory.add_item(item_name, qty)
+            else:
+                print(f"⚠️ Item '{item_name}' no tiene imagen definida en inventory.")
+
     
     def load_item_image(self, filename):
         path = os.path.join('assets', 'images', filename)

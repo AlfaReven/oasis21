@@ -20,7 +20,7 @@ class Game:
         
         # NUEVO: Sistemas añadidos
         self.menu = MainMenu(self.screen)
-        self.weather = WeatherSystem()
+        self.weather = WeatherSystem(WIDTH, HEIGHT)
         self.multiplayer = MultiplayerManager()
         
         # Estado del juego
@@ -59,22 +59,50 @@ class Game:
         # Configurar multijugador
         self.multiplayer.setup_players(num_players)
         
-        # Inicializar mundo y enemigos
+        # Inicializar mundo
         self.world = World(WIDTH * 3, HEIGHT * 3)
         self.enemy = Enemy(WIDTH, HEIGHT)
         
-        # Configurar jugador principal (referencia al primer jugador)
+        # DEBUG: Información del TMX
+        if hasattr(self.world, 'tmx_map') and self.world.tmx_map:
+            print(f"🎯 TMX INFO:")
+            print(f"   Tamaño: {self.world.tmx_map.width}x{self.world.tmx_map.height} tiles")
+            print(f"   Tile size: {self.world.tmx_map.tilewidth}x{self.world.tmx_map.tileheight}")
+            total_width = self.world.tmx_map.width * self.world.tmx_map.tilewidth
+            total_height = self.world.tmx_map.height * self.world.tmx_map.tileheight
+            print(f"   Tamaño total: {total_width}x{total_height}px")
+            print(f"   Pantalla: {WIDTH}x{HEIGHT}px")
+        
+        # Configurar jugador principal
         players_list = self.multiplayer.players
         if players_list:
-            self.player = players_list[0]  # Jugador principal para lógica existente
+            self.player = players_list[0]
+            
+            # POSICIONAR EN EL CENTRO DEL TMX SI EXISTE
+            if hasattr(self.world, 'tmx_map') and self.world.tmx_map:
+                tilemap_width = self.world.tmx_map.width * self.world.tmx_map.tilewidth
+                tilemap_height = self.world.tmx_map.height * self.world.tmx_map.tileheight
+                self.player.x = tilemap_width // 2
+                self.player.y = tilemap_height // 2
+                print(f"🎯 Jugador posicionado:")
+                print(f"   Posición jugador: {self.player.x}, {self.player.y}")
+                print(f"   Centro TMX: {tilemap_width // 2}, {tilemap_height // 2}")
+            else:
+                # Fallback a posición original
+                self.player.x = WIDTH // 2
+                self.player.y = HEIGHT // 2
         
         self.player_weapon = Weapon("Pistol", 25, 2.0, 10)
         
-        # Posicionar cámara
+        # Posicionar cámara en el jugador
         self.camera_x = self.player.x - WIDTH // 2
         self.camera_y = self.player.y - HEIGHT // 2
         
-        print(f"Juego iniciado con {num_players} jugador(es)")
+        print(f"🎯 Cámara inicial:")
+        print(f"   Posición cámara: {self.camera_x}, {self.camera_y}")
+        print(f"   Jugador en cámara: {self.player.x - self.camera_x}, {self.player.y - self.camera_y}")
+        
+        print(f"🚀 Juego iniciado con {num_players} jugador(es) desde TMX")
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -113,8 +141,19 @@ class Game:
                         self.player.place_object(self.world)
 
                     elif event.key == pygame.K_e:
-                        if self.player.inventory.table_crafting_open:
-                            self.player.inventory.close_table_crafting()
+                        inv = self.player.inventory
+
+                        # 1️⃣ Si la mesa está abierta → ciérrala
+                        if inv.table_crafting_open:
+                            inv.close_table_crafting()
+
+                        # 2️⃣ Si el horno está abierto → ciérralo
+                        elif hasattr(inv, "furnace_open") and inv.furnace_open:
+                            inv.furnace_open = False
+                            inv.active_furnace = None
+                            print("🔥 Horno cerrado")
+
+                        # 3️⃣ Si nada está abierto → intentar interactuar con el mundo
                         else:
                             self.player.show_inventory = False
                             self.player.interact_with_objects(self.world)
@@ -156,16 +195,26 @@ class Game:
                         self.weather.start_rain()
 
                 # --- CLICS DE RATÓN ---
+                # --- CLICS DE RATÓN ---
                 elif event.type == pygame.MOUSEBUTTONDOWN and self.game_state == "playing":
                     pos = pygame.mouse.get_pos()
+                    inv = self.player.inventory
 
-                    # Inventario del jugador 1
-                    if self.player.inventory.table_crafting_open:
-                        self.player.inventory.handle_table_crafting_click(pos, event.button)
+                    # 🎯 ORDEN DE PRIORIDAD: Horno > Mesa > Inventario normal
+                    if hasattr(inv, "furnace_open") and inv.furnace_open:
+                        print("🔥 Procesando click en horno...")
+                        inv.handle_furnace_click(pos, event.button)
+                        
+                    elif inv.table_crafting_open:
+                        print("🪵 Procesando click en mesa...")
+                        inv.handle_table_crafting_click(pos, event.button)
+                        
                     elif self.player.show_inventory:
-                        self.player.inventory.handle_click(pos, event.button, show_inventory=True)
-
-
+                        print("🎒 Procesando click en inventario...")
+                        inv.handle_click(pos, event.button, show_inventory=True)
+                        
+                        
+                        
     def player_shoot(self, player_id=0):
         """Manejar el disparo del jugador especificado"""
         if player_id == 0:
@@ -209,15 +258,22 @@ class Game:
         self.current_time = pygame.time.get_ticks()
         
         obstacles = self.world.trees + self.world.placeable_objects
-        self.weather.update(dt)
+        self.weather.update(dt, self.camera_x, self.camera_y)
         self.multiplayer.update(dt * 1000, obstacles)
         
         if self.player:
             self.player.update(dt * 1000, obstacles)
             self.player.update_animation(dt * 1000)
         
+        # 🔥 ACTUALIZAR HORNO SI ESTÁ ABIERTO
+        if hasattr(self.player.inventory, "active_furnace") and self.player.inventory.active_furnace:
+            furnace = self.player.inventory.active_furnace
+            furnace.update(dt * 1000)  # Asegúrate de que el horno tenga método update
+        
         if hasattr(self.world, 'update_placeables'):
             self.world.update_placeables(dt * 1000)
+        
+        # ... resto del código update
         
         self.world.update(self.player, dt * 1000, self.enemy_bullets, self.current_time)
         self.player_bullets.update(dt * 1000)
@@ -305,7 +361,7 @@ class Game:
             self.menu.draw()
             
         elif self.game_state == "playing":
-            # Dibujar mundo
+            # --- MUNDO ---
             self.world.draw(
                 self.screen, 
                 self.camera_x, 
@@ -314,39 +370,49 @@ class Game:
                 current_time=self.current_time
             )
 
-            # NUEVO: Dibujar lluvia
+            # --- EFECTOS CLIMÁTICOS ---
             self.weather.draw(self.screen, self.camera_x, self.camera_y)
 
+            # --- OBJETOS COLOCABLES ---
             if hasattr(self.world, 'draw_placeables'):
                 self.world.draw_placeables(self.screen, self.camera_x, self.camera_y)
             
-            # NUEVO: Dibujar todos los jugadores
+            # --- JUGADORES ---
             self.multiplayer.draw(self.screen, self.camera_x, self.camera_y)
             
-            # Balas del jugador
+            # --- BALAS ---
             for bullet in self.player_bullets:
                 screen_x = bullet.x - self.camera_x
                 screen_y = bullet.y - self.camera_y
                 if 0 <= screen_x <= WIDTH and 0 <= screen_y <= HEIGHT:
                     self.screen.blit(bullet.image, (screen_x, screen_y))
 
-            # Balas enemigas
             for bullet in self.enemy_bullets:
                 screen_x = bullet.x - self.camera_x
                 screen_y = bullet.y - self.camera_y
                 if 0 <= screen_x <= WIDTH and 0 <= screen_y <= HEIGHT:
                     self.screen.blit(bullet.image, (screen_x, screen_y))
 
-            # Inventario (solo del jugador principal)
+            # --- INVENTARIO / INTERFACES ---
             inv = self.player.inventory
+
+            # 🔸 Mesa de crafteo abierta
             if inv.table_crafting_open:
                 inv.draw_crafting_table(self.screen)
+
+            # 🔸 Horno abierto
+            elif hasattr(inv, "furnace_open") and inv.furnace_open:
+                inv.draw_furnace(self.screen)
+
+            # 🔸 Inventario abierto
             elif self.player.show_inventory:
                 inv.draw(self.screen, show_inventory=True)
+
+            # 🔸 Hotbar visible siempre
             else:
                 inv.draw(self.screen, show_inventory=False)
 
-            # HUD
+            # --- HUD ---
             self.draw_hud()
         
         pygame.display.flip()

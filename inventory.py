@@ -37,9 +37,12 @@ class Inventory:
             'axe': os.path.join('assets', 'images', 'axe.png'),
             'mineral_iron': os.path.join('assets', 'images', 'iron_mineral.png'),
             'work_bench': os.path.join('assets', 'images', 'work_bench.png'),
-            'iron': os.path.join('assets', 'images', 'iron.png'),
             'furnace': os.path.join('assets', 'images', 'furnace.png'),
-            'pala': os.path.join('assets', 'images', 'pala.png')
+            'pala': os.path.join('assets', 'images', 'pala.png'),
+            'ingot_iron': os.path.join('assets', 'images', 'ingot_iron.png'),
+            'bucket': os.path.join('assets', 'images', 'bucket.png'),
+            'bucket_half': os.path.join('assets', 'images', 'bucket_half.png'),
+            'bucket_full': os.path.join('assets', 'images', 'bucket_full.png')
         }
         
         
@@ -47,7 +50,7 @@ class Inventory:
             'wood': 21,
             'stone': 21,
             'mineral_iron': 21,
-            'iron': 21
+            'ingot_iron': 21
         }
         
         """RECETAS PARA LA CREACION DE ITEMS QUE NECESITARA EDUARDO PARA CONTINUARCON 
@@ -105,11 +108,23 @@ class Inventory:
                 'result': 'pala',
                 'result_quantity': 1,
                 'requires_table': True
+            },
+            'bucket': {
+                'pattern': [
+                    ['ingot_iron', None, 'ingot_iron'],
+                    ['ingot_iron', None, 'ingot_iron'],
+                    [None, 'ingot_iron', None]
+                ],
+                'result': 'bucket',
+                'result_quantity': 1,
+                'requires_table': True
             }
         }
 
         
-        self.equippable_items = {'axe', 'work_bench', 'furnance', 'water_tank', 'farm_plot', 'pickaxe'}
+        self.equippable_items = {'axe', 'work_bench', 'furnace', 'water_tank', 
+                                 'farm_plot', 'pickaxe', 'bucket', 'bucket_half',
+                                 'bucket_full'}
 
     def add_item(self, item_name, quantity=1):
 
@@ -1012,6 +1027,7 @@ class Inventory:
 
         
         self._draw_hotbar(screen)
+        self._draw_hand_slots(screen)
         
         if self.dragged_item:
             mouse_pos = pygame.mouse.get_pos()
@@ -1036,3 +1052,345 @@ class Inventory:
     def close_table_crafting(self):
         self.table_crafting_open = False
         print("🪵 Mesa de crafteo cerrada")
+
+
+# ------------------------------
+# 🔥 HORNO - VERSIÓN CORREGIDA
+# ------------------------------
+
+    def open_furnace(self, furnace_obj):
+        """Activa la interfaz del horno."""
+        self.active_furnace = furnace_obj
+        self.furnace_open = True
+        print("🔥 Horno abierto.")
+
+    def close_furnace(self):
+        self.furnace_open = False
+        self.active_furnace = None
+        print("❌ Horno cerrado.")
+
+    def handle_furnace_click(self, pos, button):
+        """Maneja clicks dentro de la interfaz combinada: inventario + horno + hotbar - MISMOS QUE MESA"""
+        if not hasattr(self, 'furnace_open') or not self.furnace_open:
+            return
+        if not hasattr(self, 'active_furnace') or not self.active_furnace:
+            return
+
+        mouse_x, mouse_y = pos
+        furnace = self.active_furnace
+
+        # === 1️⃣ INVENTARIO (MISMA LÓGICA QUE MESA) ===
+        inv_start_x = WIDTH // 2 - 350
+        inv_start_y = HEIGHT // 2 - (INVENTORY_ROWS * SLOT_SIZE // 2)
+
+        for row in range(INVENTORY_ROWS):
+            for col in range(INVENTORY_COLS):
+                x = inv_start_x + (col * SLOT_SIZE)
+                y = inv_start_y + (row * SLOT_SIZE)
+                if x <= mouse_x <= x + SLOT_SIZE and y <= mouse_y <= y + SLOT_SIZE:
+                    if button == 1:  # Click izquierdo
+                        if self.dragged_item:
+                            if self.inventory[row][col] is None:
+                                self.inventory[row][col] = self.dragged_item
+                                self.dragged_item = None
+                            else:
+                                # Intercambiar
+                                self.inventory[row][col], self.dragged_item = self.dragged_item, self.inventory[row][col]
+                        elif self.inventory[row][col]:
+                            # Agarrar item
+                            self.dragged_item = self.inventory[row][col]
+                            self.inventory[row][col] = None
+                    elif button == 3:  # Click derecho
+                        self._handle_right_click_grid(row, col, x, y)
+                    return
+
+        # === 2️⃣ HOTBAR (MISMA LÓGICA QUE MESA) ===
+        hotbar_start_x = HOTBAR_X
+        hotbar_start_y = HOTBAR_Y
+
+        for i in range(HOTBAR_SLOTS):
+            x = hotbar_start_x + i * SLOT_SIZE
+            y = hotbar_start_y
+            if x <= mouse_x <= x + SLOT_SIZE and y <= mouse_y <= y + SLOT_SIZE:
+                if button == 1:  # Click izquierdo
+                    if self.dragged_item:
+                        if self.hotbar[i] is None:
+                            self.hotbar[i] = self.dragged_item
+                            self.dragged_item = None
+                        else:
+                            # Intercambiar
+                            self.hotbar[i], self.dragged_item = self.dragged_item, self.hotbar[i]
+                    elif self.hotbar[i]:
+                        # Agarrar item
+                        self.dragged_item = self.hotbar[i]
+                        self.hotbar[i] = None
+                elif button == 3:  # Click derecho
+                    self._handle_right_click(self.hotbar, i, x, y)
+                return
+
+        # === 3️⃣ SLOTS DEL HORNO ===
+        furnace_start_x = WIDTH // 2 + 100
+        furnace_start_y = HEIGHT // 2 - (SLOT_SIZE // 2)
+
+        # Definir áreas de los slots del horno
+        input_rect = pygame.Rect(furnace_start_x, furnace_start_y, SLOT_SIZE, SLOT_SIZE)
+        fuel_rect = pygame.Rect(furnace_start_x + SLOT_SIZE + 40, furnace_start_y, SLOT_SIZE, SLOT_SIZE)
+        output_rect = pygame.Rect(furnace_start_x + 2 * (SLOT_SIZE + 40), furnace_start_y, SLOT_SIZE, SLOT_SIZE)
+
+        # --- SLOT DE ENTRADA (INPUT) ---
+        if input_rect.collidepoint(mouse_x, mouse_y):
+            if button == 1:  # Click izquierdo
+                if self.dragged_item:
+                    if furnace.input_slot is None:
+                        furnace.input_slot = self.dragged_item
+                        self.dragged_item = None
+                    else:
+                        # Intercambiar
+                        furnace.input_slot, self.dragged_item = self.dragged_item, furnace.input_slot
+                elif furnace.input_slot:
+                    # Agarrar item
+                    self.dragged_item = furnace.input_slot
+                    furnace.input_slot = None
+            elif button == 3:  # Click derecho
+                self._handle_right_click_furnace_slot('input')
+            return
+
+        # --- SLOT DE COMBUSTIBLE (FUEL) ---
+        if fuel_rect.collidepoint(mouse_x, mouse_y):
+            if button == 1:  # Click izquierdo
+                if self.dragged_item:
+                    # Si es madera, colocarla en el slot de combustible
+                    if self.dragged_item.name == "wood":
+                        if furnace.fuel_slot is None:
+                            furnace.fuel_slot = self.dragged_item
+                            self.dragged_item = None
+                            print(f"🪵 Madera colocada como combustible: {furnace.fuel_slot.quantity} unidades")
+                        else:
+                            # Si ya hay madera, intercambiar
+                            furnace.fuel_slot, self.dragged_item = self.dragged_item, furnace.fuel_slot
+                    else:
+                        print(f"❌ {self.dragged_item.name} no es combustible válido (solo madera)")
+                elif furnace.fuel_slot:
+                    # Agarrar combustible
+                    self.dragged_item = furnace.fuel_slot
+                    furnace.fuel_slot = None
+                    print("🪵 Combustible removido")
+            elif button == 3:  # Click derecho
+                self._handle_right_click_furnace_slot('fuel')
+            return
+
+        # === 4️⃣ MANOS (LEFT/RIGHT HAND) ===
+        if LEFT_HAND_SLOT_X <= mouse_x <= LEFT_HAND_SLOT_X + SLOT_SIZE and HOTBAR_Y <= mouse_y <= HOTBAR_Y + SLOT_SIZE:
+            self._handle_hand_slot_click(button, 'left')
+            return
+        
+        if RIGHT_HAND_SLOT_X <= mouse_x <= RIGHT_HAND_SLOT_X + SLOT_SIZE and HOTBAR_Y <= mouse_y <= HOTBAR_Y + SLOT_SIZE:
+            self._handle_hand_slot_click(button, 'right')
+            return
+
+        # === 5️⃣ CLICK FUERA → DEVOLVER ITEM ARRASTRADO ===
+        if self.dragged_item and button == 1:
+            self._return_dragged_item()
+            
+        # --- SLOT DE SALIDA (OUTPUT) ---
+        if output_rect.collidepoint(mouse_x, mouse_y):
+            if button == 1:  # Click izquierdo
+                if furnace.output_slot and not self.dragged_item:
+                    # Agarrar el resultado si no tenemos nada arrastrado
+                    self.dragged_item = furnace.output_slot
+                    furnace.output_slot = None
+                    print("✅ Resultado tomado del horno")
+                elif furnace.output_slot and self.dragged_item:
+                    # Si hay resultado y tenemos item arrastrado, intercambiar
+                    furnace.output_slot, self.dragged_item = self.dragged_item, furnace.output_slot
+                    print("🔄 Resultado intercambiado")
+            elif button == 3 and furnace.output_slot:  # Click derecho
+                # Dividir stack del resultado
+                if furnace.output_slot.quantity > 1:
+                    half = furnace.output_slot.quantity // 2
+                    self.dragged_item = InventoryItem(
+                        furnace.output_slot.name,
+                        self.item_images[furnace.output_slot.name],
+                        half
+                    )
+                    furnace.output_slot.quantity -= half
+                    print(f"➗ Resultado dividido: {half} unidades")
+            return
+
+    def _handle_right_click_furnace_slot(self, slot_type):
+        """Maneja click derecho en slots del horno (dividir stacks)"""
+        furnace = self.active_furnace
+        if not furnace:
+            return
+
+        if slot_type == 'input':
+            slot = furnace.input_slot
+        elif slot_type == 'fuel':
+            slot = furnace.fuel_slot
+        else:
+            return
+
+        if self.dragged_item:
+            # Si hay item arrastrado, intentar colocar 1 unidad
+            if slot is None and self.dragged_item.quantity > 1:
+                # Crear nuevo item con 1 unidad
+                new_item = InventoryItem(
+                    self.dragged_item.name,
+                    self.item_images[self.dragged_item.name],
+                    1
+                )
+                if slot_type == 'input':
+                    furnace.input_slot = new_item
+                else:
+                    furnace.fuel_slot = new_item
+                self.dragged_item.quantity -= 1
+            elif slot and slot.name == self.dragged_item.name:
+                # Si son del mismo tipo, agregar 1 unidad
+                max_stack = self.stackable_items.get(slot.name, 1)
+                if slot.quantity < max_stack:
+                    slot.quantity += 1
+                    self.dragged_item.quantity -= 1
+                    if self.dragged_item.quantity <= 0:
+                        self.dragged_item = None
+        elif slot and slot.quantity > 1:
+            # Dividir stack a la mitad
+            half = slot.quantity // 2
+            if half > 0:
+                self.dragged_item = InventoryItem(
+                    slot.name,
+                    self.item_images[slot.name],
+                    half
+                )
+                slot.quantity -= half
+
+    def draw_furnace(self, screen):
+        """Dibuja la interfaz completa del horno + inventario + hotbar."""
+        if not hasattr(self, "furnace_open") or not self.furnace_open:
+            return
+        if not hasattr(self, "active_furnace") or not self.active_furnace:
+            return
+
+        furnace = self.active_furnace
+
+        # Fondo translúcido
+        background = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        background.fill((0, 0, 0, 180))
+        screen.blit(background, (0, 0))
+
+        # === INVENTARIO ===
+        inv_start_x = WIDTH // 2 - 350
+        inv_start_y = HEIGHT // 2 - (INVENTORY_ROWS * SLOT_SIZE // 2)
+
+        for row in range(INVENTORY_ROWS):
+            for col in range(INVENTORY_COLS):
+                x = inv_start_x + (col * SLOT_SIZE)
+                y = inv_start_y + (row * SLOT_SIZE)
+                pygame.draw.rect(screen, SLOT_BORDER, (x, y, SLOT_SIZE, SLOT_SIZE))
+                pygame.draw.rect(screen, SLOT_COLOR, (x + 2, y + 2, SLOT_SIZE - 4, SLOT_SIZE - 4))
+                if self.inventory[row][col]:
+                    self._draw_item(screen, self.inventory[row][col], x, y)
+
+        inv_title = self.font.render("Inventario", True, WHITE)
+        screen.blit(inv_title, (inv_start_x, inv_start_y - 35))
+
+        # === HORNO ===
+        furnace_start_x = WIDTH // 2 + 100
+        furnace_start_y = HEIGHT // 2 - (SLOT_SIZE // 2)
+
+        # Título del horno
+        furnace_title = self.font.render("Horno", True, WHITE)
+        screen.blit(furnace_title, (furnace_start_x, furnace_start_y - 60))
+
+        # Slot de Entrada (Input) - MINERAL
+        input_rect = pygame.Rect(furnace_start_x, furnace_start_y, SLOT_SIZE, SLOT_SIZE)
+        pygame.draw.rect(screen, SLOT_BORDER, input_rect)
+        pygame.draw.rect(screen, SLOT_COLOR, (input_rect.x + 2, input_rect.y + 2, SLOT_SIZE - 4, SLOT_SIZE - 4))
+        if furnace.input_slot:
+            self._draw_item(screen, furnace.input_slot, input_rect.x, input_rect.y)
+        
+        # Etiqueta "Mineral"
+        mineral_label = self.font.render("Mineral", True, WHITE)
+        mineral_label_rect = mineral_label.get_rect(center=(furnace_start_x + SLOT_SIZE//2, furnace_start_y + SLOT_SIZE + 15))
+        screen.blit(mineral_label, mineral_label_rect)
+
+        # Flecha de proceso
+        arrow_x = furnace_start_x + SLOT_SIZE + 15
+        arrow_y = furnace_start_y + SLOT_SIZE // 2 - 10
+        pygame.draw.polygon(screen, WHITE, [
+            (arrow_x, arrow_y),
+            (arrow_x + 20, arrow_y),
+            (arrow_x + 10, arrow_y + 10)
+        ])
+
+        # Slot de Combustible (Fuel) - MADERA
+        fuel_rect = pygame.Rect(furnace_start_x + SLOT_SIZE + 40, furnace_start_y, SLOT_SIZE, SLOT_SIZE)
+        pygame.draw.rect(screen, SLOT_BORDER, fuel_rect)
+        pygame.draw.rect(screen, (100, 80, 40), (fuel_rect.x + 2, fuel_rect.y + 2, SLOT_SIZE - 4, SLOT_SIZE - 4))
+        if furnace.fuel_slot:
+            self._draw_item(screen, furnace.fuel_slot, fuel_rect.x, fuel_rect.y)
+        
+        # Etiqueta "Combustible"
+        fuel_label = self.font.render("Combustible", True, WHITE)
+        fuel_label_rect = fuel_label.get_rect(center=(furnace_start_x + SLOT_SIZE + 40 + SLOT_SIZE//2, furnace_start_y + SLOT_SIZE + 15))
+        screen.blit(fuel_label, fuel_label_rect)
+
+        # BARRA DE PROGRESO DE FUNDICIÓN
+        progress_bar_width = 80
+        progress_bar_height = 10
+        progress_bar_x = furnace_start_x + SLOT_SIZE + 45
+        progress_bar_y = furnace_start_y - 25
+        
+        # Fondo de la barra
+        pygame.draw.rect(screen, (50, 50, 50), (progress_bar_x, progress_bar_y, progress_bar_width, progress_bar_height))
+        
+        # Progreso actual (si está fundiendo)
+        if furnace.burning and furnace.input_slot and furnace.timer > 0:
+            progress_ratio = min(furnace.timer / 3000, 1.0)  # 3000ms = 3 segundos
+            progress_width = int(progress_bar_width * progress_ratio)
+            pygame.draw.rect(screen, (255, 165, 0), (progress_bar_x, progress_bar_y, progress_width, progress_bar_height))
+        
+        # Borde de la barra
+        pygame.draw.rect(screen, WHITE, (progress_bar_x, progress_bar_y, progress_bar_width, progress_bar_height), 1)
+        
+        # Texto de progreso
+        progress_text = self.font.render("Fundición", True, WHITE)
+        screen.blit(progress_text, (progress_bar_x, progress_bar_y - 20))
+
+        # Flecha hacia output
+        arrow2_x = furnace_start_x + 2 * SLOT_SIZE + 55
+        arrow2_y = furnace_start_y + SLOT_SIZE // 2 - 10
+        pygame.draw.polygon(screen, WHITE, [
+            (arrow2_x, arrow2_y),
+            (arrow2_x + 20, arrow2_y),
+            (arrow2_x + 10, arrow2_y + 10)
+        ])
+
+        # Slot de Salida (Output) - RESULTADO
+        output_rect = pygame.Rect(furnace_start_x + 2 * (SLOT_SIZE + 40), furnace_start_y, SLOT_SIZE, SLOT_SIZE)
+        pygame.draw.rect(screen, SLOT_BORDER, output_rect)
+        pygame.draw.rect(screen, SLOT_COLOR, (output_rect.x + 2, output_rect.y + 2, SLOT_SIZE - 4, SLOT_SIZE - 4))
+        if furnace.output_slot:
+            self._draw_item(screen, furnace.output_slot, output_rect.x, output_rect.y)
+        
+        # Etiqueta "Resultado"
+        output_label = self.font.render("Resultado", True, WHITE)
+        output_label_rect = output_label.get_rect(center=(furnace_start_x + 2 * (SLOT_SIZE + 40) + SLOT_SIZE//2, furnace_start_y + SLOT_SIZE + 15))
+        screen.blit(output_label, output_label_rect)
+
+        # === HOTBAR Y MANOS ===
+        self._draw_hotbar(screen)
+        self._draw_hand_slots(screen)
+
+        # === ITEM ARRASTRADO ===
+        if self.dragged_item:
+            mouse_pos = pygame.mouse.get_pos()
+            screen.blit(self.dragged_item.image,
+                        (mouse_pos[0] - self.dragged_item.drag_offset[0],
+                        mouse_pos[1] - self.dragged_item.drag_offset[1]))
+            
+            if self.dragged_item.quantity > 1:
+                text = self.font.render(str(self.dragged_item.quantity), True, WHITE)
+                text_rect = text.get_rect()
+                text_rect.bottomright = (mouse_pos[0] + self.dragged_item.image.get_width() // 2 - 5,
+                                        mouse_pos[1] + self.dragged_item.image.get_height() // 2 - 5)
+                screen.blit(text, text_rect)

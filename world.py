@@ -7,13 +7,15 @@ import os
 from pygame import Surface
 from enemy import Enemy, RangedEnemy  
 from placeable import *
+from pytmx.util_pygame import load_pygame
 
 class WorldChunk: 
-    def __init__(self, x, y, width, height):
+    def __init__(self, x, y, width, height, world_reference=None):
         self.x = x
         self.y = y
         self.width = width
         self.height = height
+        self.world = world_reference  # Referencia al mundo para acceder al TMX
         self.farmland_tiles = {}
         self.water_tiles = {}
         self.iron_minerals = []
@@ -24,55 +26,69 @@ class WorldChunk:
         old_state = random.getstate()
         random.seed(chunk_seed)
         
-        self.trees = [
-            Tree(self.x + random.randint(50, width - constants.TREE - 50), 
-                self.y + random.randint(50, height - constants.TREE - 50)
-                ) for _ in range(5)
-        ]
-        self.small_stones = [
-            Smallstone(self.x + random.randint(50, width - constants.SMALL_STONE - 50),
-                       self.y + random.randint(50, height - constants.SMALL_STONE - 50)
-                       ) for _ in range(10)
-        ]
-        
-        self.generate_surface_iron()
-        
-        #generar el agua de los lagos
-        if random.random() < WATER_GENERATION_PROBABILITY:
-            center_x = self.x + random.randint(0, width)
-            center_y = self.y + random.randint(0, height)
-            radius = random.randint(3, 5) * GRASS
+        # CHUNK INICIAL (0,0) - USAR TMX Y NO GENERAR NADA
+        if x == 0 and y == 0:
+            # CHUNK VACÍO - solo el tilemap TMX
+            self.trees = []
+            self.small_stones = []
+            self.enemies = []
+            self.iron_minerals = []
+            self.water_tiles = {}  # Limpiar agua también
+        else:
+            # CHUNKS NORMALES para el resto del mundo
+            self.trees = [
+                Tree(self.x + random.randint(50, width - constants.TREE - 50), 
+                    self.y + random.randint(50, height - constants.TREE - 50)
+                    ) for _ in range(5)
+            ]
+            self.small_stones = [
+                Smallstone(self.x + random.randint(50, width - constants.SMALL_STONE - 50),
+                           self.y + random.randint(50, height - constants.SMALL_STONE - 50)
+                           ) for _ in range(10)
+            ]
             
-            for y_offset in range(-int(radius), int(radius) + 1, GRASS):
-                for x_offset in range(-int(radius), int(radius) + 1, GRASS):
-                    tile_x = center_x + x_offset
-                    tile_y = center_y + y_offset
-                    
-                    if ((x_offset ** 2 + y_offset ** 2) < radius ** 2 and
-                        self.x <= tile_x < self.x + width and
-                        self.y <= tile_y < self.y + height):
-                        
-                        grid_x = (tile_x // GRASS) * GRASS
-                        grid_y = (tile_y // GRASS) * GRASS
-                        
-                        tile_key = (grid_x, grid_y)
-                        self.water_tiles[tile_key] = Water(grid_x, grid_y)
-        
-        # Mezclar tipos de enemigos
-        self.enemies = []
-        for _ in range(5):
-            enemy_x = self.x + random.randint(50, width - ENTITY - 50)
-            enemy_y = self.y + random.randint(50, height - ENTITY - 50)
+            self.generate_surface_iron()
             
-            # 70% enemigos básicos, 30% a distancia
-            if random.random() < 0.3:
-                self.enemies.append(RangedEnemy(enemy_x, enemy_y, "ranged"))
-            else:
-                self.enemies.append(Enemy(enemy_x, enemy_y, "basic"))
+            #generar el agua de los lagos
+            if random.random() < WATER_GENERATION_PROBABILITY:
+                center_x = self.x + random.randint(0, width)
+                center_y = self.y + random.randint(0, height)
+                radius = random.randint(3, 5) * GRASS
+                
+                for y_offset in range(-int(radius), int(radius) + 1, GRASS):
+                    for x_offset in range(-int(radius), int(radius) + 1, GRASS):
+                        tile_x = center_x + x_offset
+                        tile_y = center_y + y_offset
+                        
+                        if ((x_offset ** 2 + y_offset ** 2) < radius ** 2 and
+                            self.x <= tile_x < self.x + width and
+                            self.y <= tile_y < self.y + height):
+                            
+                            grid_x = (tile_x // GRASS) * GRASS
+                            grid_y = (tile_y // GRASS) * GRASS
+                            
+                            tile_key = (grid_x, grid_y)
+                            self.water_tiles[tile_key] = Water(grid_x, grid_y)
+            
+            # Enemigos solo en chunks que no sean el inicial
+            self.enemies = []
+            for _ in range(5):
+                enemy_x = self.x + random.randint(50, width - ENTITY - 50)
+                enemy_y = self.y + random.randint(50, height - ENTITY - 50)
+                
+                # 70% enemigos básicos, 30% a distancia
+                if random.random() < 0.3:
+                    self.enemies.append(RangedEnemy(enemy_x, enemy_y, "ranged"))
+                else:
+                    self.enemies.append(Enemy(enemy_x, enemy_y, "basic"))
         
         random.setstate(old_state)
         
     def generate_surface_iron(self):
+        # Solo generar hierro si no es el chunk inicial
+        if self.x == 0 and self.y == 0:
+            return
+            
         for _ in range(20):  
             iron_x = self.x + random.randint(0, self.width - MINERAL_IRON)
             iron_y = self.y + random.randint(0, self.height - MINERAL_IRON)
@@ -112,21 +128,22 @@ class WorldChunk:
         return True
         
     def update(self, player, dt, bullets_group, current_time):
-
-        for enemy in self.enemies[:]:
-            if hasattr(enemy, 'update_with_bullets'):
-                enemy.update_with_bullets(dt, player, [], bullets_group, current_time)
-            elif hasattr(enemy, 'update_ranged'):
-                enemy.update_ranged(dt, player, [], bullets_group, current_time)
-            else:
-                enemy.update(dt, player, [])
-                
-                
-            if enemy.is_dead():
-                self.enemies.remove(enemy)
-        
-    def draw(self, screen, grass_image, camera_x, camera_y, player=None, dt=0, bullets_group=None, current_time=0):
-       
+        # Solo actualizar enemigos si no es el chunk inicial
+        if not (self.x == 0 and self.y == 0):
+            for enemy in self.enemies[:]:
+                if hasattr(enemy, 'update_with_bullets'):
+                    enemy.update_with_bullets(dt, player, [], bullets_group, current_time)
+                elif hasattr(enemy, 'update_ranged'):
+                    enemy.update_ranged(dt, player, [], bullets_group, current_time)
+                else:
+                    enemy.update(dt, player, [])
+                    
+                    
+                if enemy.is_dead():
+                    self.enemies.remove(enemy)
+    
+    def draw_normal_chunk(self, screen, grass_image, camera_x, camera_y, bullets_group=None, current_time=0):
+        """Dibujar chunks normales (no el inicial)"""
         chunk_screen_x = self.x - camera_x
         chunk_screen_y = self.y - camera_y
         
@@ -158,7 +175,7 @@ class WorldChunk:
         self.small_stones = [stone for stone in self.small_stones if not stone.is_depleted()]
         self.iron_minerals = [iron for iron in self.iron_minerals if not iron.is_depleted()]
         
-        #REMOVER ENEMGIOS VENCIDOS
+        #REMOVER ENEMIGOS VENCIDOS
         self.enemies = [enemy for enemy in self.enemies if not enemy.is_dead()]
         
         # DIBUJAR PIEDRAS
@@ -177,9 +194,6 @@ class WorldChunk:
         for tile_key, water in self.water_tiles.items():
             water.draw(screen, camera_x, camera_y)
         
-        
-            
-            
         # DIBUJAR ENEMIGOS
         for enemy in self.enemies:
             enemy_screen_x = enemy.x - camera_x
@@ -190,7 +204,7 @@ class WorldChunk:
     
     def update_water(self, dt):
         for water in self.water_tiles.values():
-            water.update(dt)       
+            water.update(dt)
                 
         
 
@@ -202,10 +216,14 @@ class World:
         #nuevo atributo para items que se pueden colocar
         self.placeable_objects = []
         
-        
         self.view_width = width
         self.view_height = height
         
+        # CARGAR EL TILEMAP TMX
+        self.tmx_map = None
+        self.load_tmx_map()
+        
+        # Solo cargar imagen de grass si no hay TMX o como respaldo
         grass_path = os.path.join('assets', 'images', 'grass.png')
         self.grass_image = pygame.image.load(grass_path).convert()
         self.grass_image = pygame.transform.scale(self.grass_image, (constants.GRASS, constants.GRASS))
@@ -222,8 +240,39 @@ class World:
             for dy in [-1, 0, 1]:
                 self.generate_chunk(dx, dy)
     
-    def get_chunk_key(self, x, y):
+    def load_tmx_map(self):
+        """Cargar el archivo TMX del asentamiento"""
+        try:
+            tmx_path = os.path.join('assets', 'tilesets', 'asentamiento.tmx')
+            self.tmx_map = load_pygame(tmx_path)
+            print(f"✅ TMX cargado: {self.tmx_map.width}x{self.tmx_map.height} tiles")
+        except Exception as e:
+            print(f"❌ Error cargando TMX: {e}")
+            self.tmx_map = None
+    
+    def draw_tmx_map_full(self, screen):
+        """Dibuja todo el TMX sin recortar ni mover con la cámara."""
+        if not self.tmx_map:
+            return
 
+        tile_width = self.tmx_map.tilewidth
+        tile_height = self.tmx_map.tileheight
+
+        # Dibuja cada capa en orden
+        for layer in self.tmx_map.visible_layers:
+            if hasattr(layer, 'data'):
+                layer_index = self.tmx_map.layers.index(layer)
+                for y in range(self.tmx_map.height):
+                    for x in range(self.tmx_map.width):
+                        tile = layer.data[y][x]
+                        if tile:
+                            image = self.tmx_map.get_tile_image(x, y, layer_index)
+                            if image:
+                                screen.blit(image, (x * tile_width, y * tile_height))
+
+    
+    
+    def get_chunk_key(self, x, y):
         chunk_x = x // self.chunk_size
         chunk_y = y // self.chunk_size
         return (chunk_x, chunk_y)
@@ -237,19 +286,18 @@ class World:
             else:
                 x = chunk_x * self.chunk_size
                 y = chunk_y * self.chunk_size
-                self.active_chunks[key] = WorldChunk(x, y, self.chunk_size, self.chunk_size)
+                # Pasar referencia del mundo al chunk
+                self.active_chunks[key] = WorldChunk(x, y, self.chunk_size, self.chunk_size, self)
     
     def update_chunks(self, player_x, player_y):
         current_chunk = self.get_chunk_key(player_x, player_y)
         
-   
         for dx in [-2, -1, 0, 1, 2]:
             for dy in [-2, -1, 0, 1, 2]:
                 chunk_x = current_chunk[0] + dx
                 chunk_y = current_chunk[1] + dy    
                 self.generate_chunk(chunk_x, chunk_y)     
         
-
         chunks_to_move = []
         for chunk_key in self.active_chunks:  
             distance_x = abs(chunk_key[0] - current_chunk[0])
@@ -264,7 +312,6 @@ class World:
     def update(self, player, dt, bullets_group, current_time):
         self.update_chunks(player.x, player.y)
         
- 
         for chunk in self.active_chunks.values():  
             chunk.update(player, dt, bullets_group, current_time)
    
@@ -301,9 +348,17 @@ class World:
     
     def draw(self, screen, camera_x, camera_y, bullets_group=None, current_time=0):
         """Dibujar el mundo"""
+        # Dibujar TMX primero (si está cargado)
+        if self.tmx_map:
+            self.draw_tmx_map_full(screen)
+        
+        # Luego dibujar chunks normales (excepto el 0,0 que ya dibujó el TMX)
         for chunk in self.active_chunks.values():  
-            chunk.draw(screen, self.grass_image, camera_x, camera_y, 
-                      bullets_group=bullets_group, current_time=current_time)
+            if not (chunk.x == 0 and chunk.y == 0):
+                # Llamar directamente a draw_normal_chunk
+                chunk.draw_normal_chunk(screen, self.grass_image, camera_x, camera_y, bullets_group, current_time)
+        
+        # Overlay de día/noche
         screen.blit(self.day_overlay, (0, 0))
 
     def draw_inventory(self, screen, character):
@@ -312,41 +367,31 @@ class World:
         instruction_text = font.render("Press 'I' to open inventory", True, constants.WHITE)
         screen.blit(instruction_text, (10, 10))
         
-            
-    def add_placeable(self, object_type, x, y):
-        """Agrega un objeto colocable verificando colisiones"""
-        from placeable import CraftingTable  # Import aquí para evitar circular
-        
-        # Mapeo de tipos de items a clases Placeable
-        placeable_map = {
-            'work_bench': CraftingTable,
-            # Agregar más después: 'furnace': Furnace, etc.
-        }
-        
-        if object_type not in placeable_map:
-            print(f"❌ {object_type} no es un objeto colocable")
-            return False
-        
-        # Crear objeto temporal para verificar colisiones
-        temp_obj = placeable_map[object_type](x, y)
-        
-        # Verificar colisiones con obstáculos existentes
-        if self._check_placeable_collision(temp_obj):
-            print(f"❌ Colisión detectada al colocar {object_type}")
-            return False
-            
-        # Verificar colisiones con otros objetos colocables
-        for existing_obj in self.placeable_objects:
-            if self._objects_collide(temp_obj, existing_obj):
-                print(f"❌ Demasiado cerca de otro objeto")
+    def add_placeable(self, item_name, x, y):
+        """Agrega objetos colocables al mundo si el espacio está libre."""
+        # Evita poner objetos encima de otros
+        for obj in self.placeable_objects:
+            if obj.rect.collidepoint(x, y):
                 return False
-        
-        # Si no hay colisiones, agregar el objeto real
-        obj = placeable_map[object_type](x, y)
-        self.placeable_objects.append(obj)
-        print(f"✅ {object_type} colocado en ({x:.1f}, {y:.1f})")
+
+        # Crear el objeto adecuado según el tipo
+        if item_name == 'work_bench':
+            new_obj = CraftingTable(x, y)
+        elif item_name == 'furnace':
+            new_obj = Furnace(x, y)
+        else:
+            return False
+
+        self.placeable_objects.append(new_obj)
         return True
 
+    def get_nearby_placeable(self, player):
+        """Devuelve el objeto colocable más cercano al jugador."""
+        for obj in self.placeable_objects:
+            if obj.is_near(player):
+                return obj
+        return None
+    
     def _check_placeable_collision(self, placeable_obj):
         """Verifica colisiones con obstáculos del mundo"""
         temp_rect = pygame.Rect(
@@ -378,13 +423,6 @@ class World:
         return (abs(obj1.x - obj2.x) < obj1.size and 
                 abs(obj1.y - obj2.y) < obj1.size)
 
-    def get_nearby_placeable(self, player):
-        """Encuentra objetos colocables cercanos usando is_near"""
-        for obj in self.placeable_objects:
-            if obj.is_near(player):
-                return obj
-        return None
-
     def draw_placeables(self, screen, camera_x, camera_y):
         """Dibuja todos los objetos colocables"""
         for obj in self.placeable_objects:
@@ -395,7 +433,6 @@ class World:
         for obj in self.placeable_objects:
             if hasattr(obj, 'update'):
                 obj.update(dt)
-
             
     # Propiedades para obtener todos los elementos de los chunks activos
     @property
@@ -426,7 +463,6 @@ class World:
             all_iron.extend(chunk.iron_minerals)
         return all_iron
     
-    
     def add_farmland(self, x, y):
         chunk_key = self.get_chunk_key(x, y)
         chunk = self.active_chunks.get(chunk_key)
@@ -449,7 +485,6 @@ class World:
                 if(grid_x < iron.x + iron.size and grid_x + GRASS > iron.x and
                 grid_y < iron.y + iron.size and grid_y + GRASS > iron.y):
                     return False
-                
                 
             tile_key = (grid_x, grid_y)
             if tile_key in chunk.water_tiles:
