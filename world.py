@@ -29,7 +29,7 @@ class WorldChunk:
         # CHUNK INICIAL (0,0) - USAR TMX Y NO GENERAR NADA
         if x == 0 and y == 0:
             self.width = 1536
-            self.height = 1024
+            self.height = 1056
             # CHUNK VACÍO - solo el tilemap TMX
             self.trees = []
             self.small_stones = []
@@ -227,6 +227,8 @@ class World:
         # CARGAR EL TILEMAP TMX
         self.tmx_map = None
         self.load_tmx_map()
+        self.load_collision_objects()
+
         
         # Solo cargar imagen de grass si no hay TMX o como respaldo
         grass_path = os.path.join('assets', 'images', 'grass.png')
@@ -256,29 +258,41 @@ class World:
             self.tmx_map = None
     
     def draw_tmx_map_full(self, screen, camera_x, camera_y):
-        """Dibuja todo el TMX desplazándose correctamente con la cámara."""
+        """Render exacto del mapa TMX sin recortes en bordes inferiores o derechos."""
         if not self.tmx_map:
             return
 
-        tile_width = self.tmx_map.tilewidth
-        tile_height = self.tmx_map.tileheight
+        tile_w = self.tmx_map.tilewidth
+        tile_h = self.tmx_map.tileheight
+        scr_w, scr_h = screen.get_size()
 
-        for layer in self.tmx_map.visible_layers:
-            if hasattr(layer, 'data'):
-                layer_index = self.tmx_map.layers.index(layer)
-                for y in range(self.tmx_map.height):
-                    for x in range(self.tmx_map.width):
-                        tile = layer.data[y][x]
-                        if tile:
-                            image = self.tmx_map.get_tile_image(x, y, layer_index)
-                            if image:
-                                # 🔥 aplicar desplazamiento de cámara
-                                screen.blit(image, 
-                                    (x * tile_width - camera_x, 
-                                    y * tile_height - camera_y))
+        # Ajustar rango visible
+        start_x = int(camera_x // tile_w)
+        start_y = int(camera_y // tile_h)
+        end_x = int((camera_x + scr_w) // tile_w) + 1
+        end_y = int((camera_y + scr_h) // tile_h) + 1
+
+        # Clamp dentro del mapa
+        start_x = max(0, start_x)
+        start_y = max(0, start_y)
+        end_x = min(self.tmx_map.width, end_x)
+        end_y = min(self.tmx_map.height, end_y)
+
+        for layer_index, layer in enumerate(self.tmx_map.visible_layers):
+            if not hasattr(layer, "data"):
+                continue
+
+            for y in range(start_y, end_y):
+                for x in range(start_x, end_x):
+                    image = self.tmx_map.get_tile_image(x, y, layer_index)
+                    if image:
+                        # Redondeo seguro y corrección de 1px por truncamiento
+                        px = round(x * tile_w - camera_x)
+                        py = round(y * tile_h - camera_y)
+                        screen.blit(image, (px, py))
 
 
-    
+
     
     def get_chunk_key(self, x, y):
         chunk_x = x // CHUNK_WIDTH
@@ -441,6 +455,20 @@ class World:
         for obj in self.placeable_objects:
             if hasattr(obj, 'update'):
                 obj.update(dt)
+                
+    def load_collision_objects(self):
+        """Lee las colisiones desde el TMX y las guarda como rectángulos."""
+        self.collision_rects = []
+        if not self.tmx_map:
+            return
+
+        # Buscar la capa llamada 'Colisiones'
+        for layer in self.tmx_map.visible_layers:
+            if hasattr(layer, "name") and layer.name.lower() == "colisiones":
+                for obj in layer:
+                    rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
+                    self.collision_rects.append(rect)
+
             
     # Propiedades para obtener todos los elementos de los chunks activos
     @property

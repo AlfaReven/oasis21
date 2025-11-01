@@ -51,58 +51,73 @@ class Game:
         """Inicializar el juego con el número de jugadores especificado"""
         self.game_state = "playing"
         self.num_players = num_players
-        
+
         # Reiniciar sistemas
         self.player_bullets = pygame.sprite.Group()
         self.enemy_bullets = pygame.sprite.Group()
-        
-        # Configurar multijugador
-        self.multiplayer.setup_players(num_players)
-        
-        # Inicializar mundo
+
+        # --- 1️⃣ Inicializar el mundo (primero para tener acceso al TMX) ---
         self.world = World(WIDTH * 3, HEIGHT * 3)
+
+        # --- 2️⃣ Buscar el punto de spawn en el TMX ---
+        spawn_x, spawn_y = None, None
+        if self.world.tmx_map:
+            for obj in self.world.tmx_map.objects:
+                name = getattr(obj, "name", None)
+                type_ = getattr(obj, "type", None)
+
+                if isinstance(name, str):
+                    name = name.lower()
+                else:
+                    name = ""
+
+                if isinstance(type_, str):
+                    type_ = type_.lower()
+                else:
+                    type_ = ""
+
+                if name == "spawn" or type_ == "spawn":
+                    spawn_x, spawn_y = obj.x, obj.y
+                    print(f"🎯 Punto de spawn encontrado en ({spawn_x}, {spawn_y})")
+                    break
+
+        if spawn_x is None or spawn_y is None:
+            print("⚠️ No se encontró punto de spawn, usando centro por defecto.")
+            tilemap_width = self.world.tmx_map.width * self.world.tmx_map.tilewidth
+            tilemap_height = self.world.tmx_map.height * self.world.tmx_map.tileheight
+            spawn_x = tilemap_width // 2
+            spawn_y = tilemap_height // 2
+
+        # --- 3️⃣ Configurar jugadores ---
+        self.multiplayer.setup_players(num_players)
+
+        if self.multiplayer.players:
+            self.player = self.multiplayer.players[0]
+            self.player.x = spawn_x
+            self.player.y = spawn_y
+            self.player.rect.topleft = (spawn_x, spawn_y)
+            print(f"🧍Jugador posicionado en: {spawn_x}, {spawn_y}")
+
+        # --- 4️⃣ Evitar que el spawn esté en una colisión ---
+        if hasattr(self.world, "collision_rects"):
+            for rect in self.world.collision_rects:
+                if self.player.rect.colliderect(rect):
+                    self.player.y += 32
+                    self.player.rect.topleft = (self.player.x, self.player.y)
+                    print("⚠️ Ajuste: Spawn dentro de colisión, movido hacia abajo.")
+                    break
+
+        # --- 5️⃣ Crear enemigos y cámara ---
         self.enemy = Enemy(WIDTH, HEIGHT)
-        
-        # DEBUG: Información del TMX
-        if hasattr(self.world, 'tmx_map') and self.world.tmx_map:
-            print(f"🎯 TMX INFO:")
-            print(f"   Tamaño: {self.world.tmx_map.width}x{self.world.tmx_map.height} tiles")
-            print(f"   Tile size: {self.world.tmx_map.tilewidth}x{self.world.tmx_map.tileheight}")
-            total_width = self.world.tmx_map.width * self.world.tmx_map.tilewidth
-            total_height = self.world.tmx_map.height * self.world.tmx_map.tileheight
-            print(f"   Tamaño total: {total_width}x{total_height}px")
-            print(f"   Pantalla: {WIDTH}x{HEIGHT}px")
-        
-        # Configurar jugador principal
-        players_list = self.multiplayer.players
-        if players_list:
-            self.player = players_list[0]
-            
-            # POSICIONAR EN EL CENTRO DEL TMX SI EXISTE
-            if hasattr(self.world, 'tmx_map') and self.world.tmx_map:
-                tilemap_width = self.world.tmx_map.width * self.world.tmx_map.tilewidth
-                tilemap_height = self.world.tmx_map.height * self.world.tmx_map.tileheight
-                self.player.x = tilemap_width // 2
-                self.player.y = tilemap_height // 2
-                print(f"🎯 Jugador posicionado:")
-                print(f"   Posición jugador: {self.player.x}, {self.player.y}")
-                print(f"   Centro TMX: {tilemap_width // 2}, {tilemap_height // 2}")
-            else:
-                # Fallback a posición original
-                self.player.x = WIDTH // 2
-                self.player.y = HEIGHT // 2
-        
         self.player_weapon = Weapon("Pistol", 25, 2.0, 10)
-        
-        # Posicionar cámara en el jugador
         self.camera_x = self.player.x - WIDTH // 2
         self.camera_y = self.player.y - HEIGHT // 2
+
+        print(f"🚀 Juego iniciado con {num_players} jugador(es).")
+
         
-        print(f"🎯 Cámara inicial:")
-        print(f"   Posición cámara: {self.camera_x}, {self.camera_y}")
-        print(f"   Jugador en cámara: {self.player.x - self.camera_x}, {self.player.y - self.camera_y}")
+
         
-        print(f"🚀 Juego iniciado con {num_players} jugador(es) desde TMX")
 
     def handle_events(self):
         for event in pygame.event.get():
@@ -258,6 +273,16 @@ class Game:
         self.current_time = pygame.time.get_ticks()
         
         obstacles = self.world.trees + self.world.placeable_objects
+
+        # 🔸 Agregar colisiones del mapa (rectángulos de la capa "Colisiones")
+        if hasattr(self.world, "collision_rects"):
+            for rect in self.world.collision_rects:
+                # Creamos un objeto temporal con .rect para que el sistema actual lo entienda igual
+                class DummyObstacle:
+                    def __init__(self, rect):
+                        self.rect = rect
+                obstacles.append(DummyObstacle(rect))
+
         self.weather.update(dt, self.camera_x, self.camera_y)
         self.multiplayer.update(dt * 1000, obstacles)
         
