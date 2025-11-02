@@ -77,8 +77,10 @@ class Game:
                     type_ = ""
 
                 if name == "spawn" or type_ == "spawn":
-                    spawn_x, spawn_y = obj.x, obj.y
-                    print(f"🎯 Punto de spawn encontrado en ({spawn_x}, {spawn_y})")
+                    tile_h = self.world.tmx_map.tileheight
+                    spawn_x = int(obj.x)
+                    spawn_y = int(obj.y - tile_h)  # ✅ Corrige la base del objeto en Tiled
+                    print(f"🎯 Punto de spawn corregido en ({spawn_x}, {spawn_y})")
                     break
 
         if spawn_x is None or spawn_y is None:
@@ -151,6 +153,9 @@ class Game:
                     elif event.key == pygame.K_i:
                         if not self.player.inventory.table_crafting_open:
                             self.player.show_inventory = not self.player.show_inventory
+                    
+                    elif event.key == pygame.K_b:
+                        self.player.drink_water()
 
                     elif event.key == pygame.K_p:
                         self.player.place_object(self.world)
@@ -272,7 +277,7 @@ class Game:
         dt = self.clock.tick(60) / 1000.0
         self.current_time = pygame.time.get_ticks()
         
-        obstacles = self.world.trees + self.world.placeable_objects
+        obstacles = self.world.trees + self.world.placeable_objects + self.world.wells
 
         # 🔸 Agregar colisiones del mapa (rectángulos de la capa "Colisiones")
         if hasattr(self.world, "collision_rects"):
@@ -296,7 +301,7 @@ class Game:
             furnace.update(dt * 1000)  # Asegúrate de que el horno tenga método update
         
         if hasattr(self.world, 'update_placeables'):
-            self.world.update_placeables(dt * 1000)
+            self.world.update_placeables(dt * 1000, self.player)
         
         # ... resto del código update
         

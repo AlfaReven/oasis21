@@ -6,6 +6,7 @@ from inventory import Inventory
 import os
 from world import *
 from placeable import CraftingTable
+from minigame_well import *
 
 
 class Player(Entities):
@@ -85,7 +86,11 @@ class Player(Entities):
             'axe': 1,
             'work_bench': 1,
             'furnace': 1,
-            'pala': 1
+            'pala': 1,
+            'ingot_copper': 5,
+            'mineral_copper': 5,
+            'bucket': 1,
+            'pump':1,
         }
 
         for item_name, qty in starter_items.items():
@@ -316,6 +321,29 @@ class Player(Entities):
                 if iron.collect():
                     self.inventory.add_item('mineral_iron')
                 return
+        for copper in world.copper_minerals:
+            if self.is_near(copper):
+                if copper.collect():
+                    self.inventory.add_item('mineral_copper')
+                return
+
+        
+        for well in world.wells:
+            if self.is_near(well):
+                # Verificar que tiene cubeta en alguna mano
+                has_bucket = (
+                    (self.inventory.left_hand and self.inventory.left_hand.name == "bucket")
+                    or (self.inventory.right_hand and self.inventory.right_hand.name == "bucket")
+                )
+                
+                if not has_bucket:
+                    print("🪣 Necesitas tener una cubeta equipada para sacar agua.")
+                    return
+                
+                # Si tiene cubeta, iniciar el minijuego
+                start_well_minigame(self, well)
+                return
+
 
     # Los demás métodos se mantienen igual...
     def draw_inventory(self, screen, show_inventory=False):
@@ -334,7 +362,20 @@ class Player(Entities):
         self.food = max(0, min(self.food + amount, MAX_FOOD))
         
     def update_thirst(self, amount):
+        """Actualiza la sed de Eduardo (0–MAX_THIRST)."""
         self.thirst = max(0, min(self.thirst + amount, MAX_THIRST))
+
+    def drink_water(self):
+        """Eduardo bebe agua de una cubeta si tiene."""
+        for item in self.inventory.all_items():
+            if "bucket" in item.name and getattr(item, "fill_level", 0) > 0:
+                item.empty()
+                self.update_thirst(+20)
+                print("🥤 Eduardo bebió agua de su cubeta.")
+                break
+        else:
+            print("🚫 No tienes cubetas con agua.")
+
         
     def update_stamina(self, amount):
         self.stamina = max(0, min(self.stamina + amount, MAX_STAMINA))
@@ -497,4 +538,16 @@ class Player(Entities):
                     self.inventory.add_item('mineral_iron')
                 return True
         
+        return False
+    
+    def pick_placeable(self, world):
+        """Permite recoger un objeto colocado cercano."""
+        for obj in world.placeable_objects:
+            if self.is_near(obj):
+                if len(self.inventory.hotbar) < len(world.placeable_objects):
+                    item_name = obj.__class__.__name__.lower()
+                    self.inventory.add_item(item_name, 1)
+                    world.placeable_objects.remove(obj)
+                    print(f"♻️ Has recogido {item_name}.")
+                    return True
         return False

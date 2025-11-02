@@ -3,14 +3,80 @@ import constants
 from constants import *
 import os
 
+import pygame
+import os
+import constants
+
 class InventoryItem:
-    def __init__(self, name, image_path, quantity=1):
+    def __init__(self, name, image_path=None, quantity=1, fill_level=0):
+        """
+        name: nombre del ítem (por ejemplo 'bucket')
+        image_path: ruta manual a la imagen (si se quiere forzar)
+        quantity: cantidad de ítems
+        fill_level: nivel de llenado (solo aplica a ítems tipo 'bucket')
+            0 = vacío
+            1 = medio lleno
+            2 = lleno
+        """
         self.name = name
         self.quantity = quantity
-        self.image = pygame.image.load(image_path).convert_alpha()
-        self.image = pygame.transform.scale(self.image, (constants.SLOT_SIZE - 10, constants.SLOT_SIZE - 10))
+        self.fill_level = fill_level
+        self.image_path = image_path
+        self.image = None
         self.dragging = False
         self.drag_offset = (0, 0)
+
+        self.update_image()  # Carga inicial de sprite
+
+    def update_image(self):
+        """Carga la imagen adecuada según nombre o nivel de llenado."""
+        # Si el ítem es una cubeta, cambia dinámicamente el sprite
+        if "bucket" in self.name:
+            state_map = {
+                0: "bucket.png",
+                1: "bucket_half.png",
+                2: "bucket_full.png"
+            }
+            filename = state_map.get(self.fill_level, "bucket.png")
+            image_path = os.path.join("assets", "images", filename)
+        else:
+            # Para otros ítems, usa la ruta normal
+            if self.image_path:
+                image_path = self.image_path
+            else:
+                image_path = os.path.join("assets", "images", f"{self.name}.png")
+
+        if not os.path.exists(image_path):
+            # Placeholder visual si no se encuentra la imagen
+            surface = pygame.Surface((constants.SLOT_SIZE - 10, constants.SLOT_SIZE - 10), pygame.SRCALPHA)
+            surface.fill((150, 150, 150, 200))
+            self.image = surface
+            return
+
+        # Cargar y escalar imagen
+        self.image = pygame.image.load(image_path).convert_alpha()
+        self.image = pygame.transform.scale(self.image, (constants.SLOT_SIZE - 10, constants.SLOT_SIZE - 10))
+
+    def set_fill_level(self, new_level):
+        """Cambia el nivel de llenado (solo si es una cubeta)."""
+        if "bucket" not in self.name:
+            return
+        self.fill_level = max(0, min(2, new_level))
+        self.update_image()
+
+    def fill(self):
+        """Aumenta el nivel de llenado."""
+        if "bucket" not in self.name:
+            return
+        self.set_fill_level(self.fill_level + 1)
+
+    def empty(self):
+        """Reduce el nivel de llenado."""
+        if "bucket" not in self.name:
+            return
+        self.set_fill_level(self.fill_level - 1)
+
+        
         
 
 class Inventory:
@@ -36,13 +102,17 @@ class Inventory:
             'stone': os.path.join('assets', 'images', 'small_stone.png'),
             'axe': os.path.join('assets', 'images', 'axe.png'),
             'mineral_iron': os.path.join('assets', 'images', 'iron_mineral.png'),
+            'mineral_copper': os.path.join('assets', 'images', 'mineral_copper.png'),
             'work_bench': os.path.join('assets', 'images', 'work_bench.png'),
             'furnace': os.path.join('assets', 'images', 'furnace.png'),
             'pala': os.path.join('assets', 'images', 'pala.png'),
             'ingot_iron': os.path.join('assets', 'images', 'ingot_iron.png'),
+            'ingot_copper': os.path.join('assets', 'images', 'ingot_copper.png'),
             'bucket': os.path.join('assets', 'images', 'bucket.png'),
             'bucket_half': os.path.join('assets', 'images', 'bucket_half.png'),
-            'bucket_full': os.path.join('assets', 'images', 'bucket_full.png')
+            'bucket_full': os.path.join('assets', 'images', 'bucket_full.png'),
+            'pump': os.path.join('assets', 'images', 'pump.png')
+            
         }
         
         
@@ -50,7 +120,9 @@ class Inventory:
             'wood': 21,
             'stone': 21,
             'mineral_iron': 21,
-            'ingot_iron': 21
+            'ingot_iron': 21,
+            'mineral_copper':21,
+            'ingot_iron': 21,
         }
         
         """RECETAS PARA LA CREACION DE ITEMS QUE NECESITARA EDUARDO PARA CONTINUARCON 
@@ -118,13 +190,23 @@ class Inventory:
                 'result': 'bucket',
                 'result_quantity': 1,
                 'requires_table': True
-            }
+            },
+            'pump': {
+                'pattern': [
+                    ['ingot_iron', 'ingot_iron', 'copper'],
+                    ['ingot_iron', 'ingot_iron', 'copper'],
+                    ['wood', 'wood', 'wood']
+                ],
+                'result': 'pump',
+                'result_quantity': 1,
+                'requires_table': True
+            },
         }
 
         
         self.equippable_items = {'axe', 'work_bench', 'furnace', 'water_tank', 
                                  'farm_plot', 'pickaxe', 'bucket', 'bucket_half',
-                                 'bucket_full'}
+                                 'bucket_full', 'pump'}
 
     def add_item(self, item_name, quantity=1):
 
@@ -1394,3 +1476,31 @@ class Inventory:
                 text_rect.bottomright = (mouse_pos[0] + self.dragged_item.image.get_width() // 2 - 5,
                                         mouse_pos[1] + self.dragged_item.image.get_height() // 2 - 5)
                 screen.blit(text, text_rect)
+                
+    def all_items(self):
+        """
+        Devuelve una lista con todos los ítems del inventario:
+        incluye hotbar, inventario principal y manos.
+        """
+        items = []
+
+        # Inventario principal (2D list)
+        if hasattr(self, "inventory"):
+            for row in self.inventory:
+                for slot in row:
+                    if slot:
+                        items.append(slot)
+
+        # Hotbar
+        if hasattr(self, "hotbar"):
+            for slot in self.hotbar:
+                if slot:
+                    items.append(slot)
+
+        # Manos
+        if hasattr(self, "left_hand") and self.left_hand:
+            items.append(self.left_hand)
+        if hasattr(self, "right_hand") and self.right_hand:
+            items.append(self.right_hand)
+
+        return items

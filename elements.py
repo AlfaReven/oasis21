@@ -3,6 +3,7 @@ import constants
 import os
 from constants import *
 import math
+import random
 
 class Tree:
     def __init__(self, x, y):
@@ -101,6 +102,36 @@ class MineralIron:
     
     def is_depleted(self):
         return self.mineral_iron <= 0
+    
+class MineralCopper:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.mineral_copper = 5
+        
+        
+        mineral_copper_path = os.path.join('assets', 'images', 'copper_tile.png')
+        self.image = pygame.image.load(mineral_copper_path).convert_alpha()
+        self.image = pygame.transform.scale(self.image, (constants.MINERAL_COPPER, constants.MINERAL_COPPER))
+        self.rect = self.image.get_rect(center=(self.x, self.y))
+        self.size = self.image.get_width()
+    
+    def draw(self, screen, camera_x, camera_y):
+        #hcaemos lo mismo que hicimos en la clase Tree
+        screen_x = self.x - camera_x
+        screen_y = self.y - camera_y
+        if (screen_x + self.size >= 0 and screen_x <= constants.WIDTH and
+            screen_y + self.size >= 0 and screen_y <= constants.HEIGHT):
+            screen.blit(self.image, (screen_x, screen_y))
+
+    def collect(self):
+        if self.mineral_copper > 0:
+            self.mineral_copper -= 1
+            return True
+        return False   
+    
+    def is_depleted(self):
+        return self.mineral_copper <= 0
 
 
 class Bullet(pygame.sprite.Sprite):
@@ -201,6 +232,7 @@ class Water:
         self.is_flowing = is_flowing
         self.is_drinkable = True
         self.size = GRASS
+        self.rect = pygame.Rect(self.x, self.y, self.size, self.size)
         
         #parametros para animacion simple de movimiento
         self.animation_frame = 0
@@ -222,4 +254,33 @@ class Water:
             offset_y = math.sin(self.animation_frame * math.pi / 2) * 2
             pygame.draw.rect(screen, WATER_COLOR, pygame.Rect(screen_x, screen_y, self.size, self.size))
             
-        
+
+class Well:
+    def __init__(self, x, y, capacity=None):
+        self.x = x
+        self.y = y
+        self.capacity = capacity if capacity else random.randint(3, 6)
+        self.remaining = self.capacity
+        self.purity = random.uniform(0.7, 1.0)  # pureza inicial (0 a 1)
+        self.size = constants.GRASS * 4
+        self.image = pygame.image.load(os.path.join('assets', 'images', 'well.png')).convert_alpha()
+        self.image = pygame.transform.scale(self.image, (self.size, self.size))
+        self.rect = self.image.get_rect(center=(x, y))
+
+    def draw(self, screen, camera_x, camera_y):
+        screen_x = self.x - camera_x
+        screen_y = self.y - camera_y
+        if (0 <= screen_x <= WIDTH and 0 <= screen_y <= HEIGHT):
+            screen.blit(self.image, (screen_x, screen_y))
+
+    def extract_water(self):
+        """Simula una extracción de agua"""
+        if self.remaining > 0:
+            self.remaining -= 1
+            # Disminuye pureza ligeramente
+            self.purity = max(0, self.purity - 0.05)
+            return True
+        return False
+
+    def is_depleted(self):
+        return self.remaining <= 0

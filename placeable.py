@@ -97,19 +97,16 @@ class Furnace(Placeable):
                     self.fuel_slot.name == "wood" and 
                     self.fuel_slot.quantity > 0)
         
-        print(f"   Has mineral: {has_mineral}, Has fuel: {has_fuel}")
         
         # Si no tenemos mineral o combustible, detener
         if not has_mineral or not has_fuel:
             if self.burning:
-                print("❌ Horno detenido - falta mineral o combustible")
                 self.burning = False
                 self.timer = 0
             return
         
         # Si tenemos ambos, empezar/continuar quemando
         if not self.burning:
-            print("🔥 Horno encendido - empezando fundición")
             self.burning = True
         
         # Reducir combustible (convertir dt a segundos)
@@ -124,7 +121,6 @@ class Furnace(Placeable):
             else:
                 # Recargar combustible
                 self.fuel_remaining = self.max_fuel_time
-                print(f"🔥 Nueva madera consumida. Combustible: {self.fuel_remaining}s")
         
         # Procesar fundición
         self.timer += dt
@@ -146,9 +142,85 @@ class Furnace(Placeable):
             else:
                 self.output_slot.quantity += 1
             
-            print(f"✅ Mineral fundido → Hierro obtenido! (Total: {self.output_slot.quantity})")
-            
             # Si no hay más mineral, detener
             if not self.input_slot or self.input_slot.quantity <= 0:
                 self.burning = False
-                print("🏁 Fundición completada - sin más mineral")
+              
+
+
+
+class WaterPump(Placeable):
+    def __init__(self, x, y):
+        super().__init__(x, y, 'pump', 'pump.png')
+        self.size = GRASS * 2
+        self.image = pygame.transform.scale(self.image, (self.size, self.size))
+        self.rect = self.image.get_rect(center=(x, y))
+        self.active = False
+        self.progress = 0.0
+
+    def update(self, dt, world, player):
+        """Extrae agua si hay un pozo cerca y una cubeta disponible."""
+        self.active = False
+        near_well = None
+
+        # Buscar pozo cercano
+        for well in world.wells:
+            dx = abs(well.x - self.x)
+            dy = abs(well.y - self.y)
+            if dx < self.size and dy < self.size:
+                near_well = well
+                break
+
+        # Si no hay pozo, reinicia progreso
+        if not near_well or near_well.remaining <= 0:
+            self.progress = 0
+            return
+
+        # Verificar si Eduardo tiene cubeta (en manos o inventario)
+        has_bucket = any(
+            "bucket" in item.name and getattr(item, "fill_level", 0) < 2
+            for item in player.inventory.all_items()
+        )
+
+        if not has_bucket:
+            self.progress = 0
+            return  # No hay cubetas vacías o medias, no bombea
+
+        # Activar la bomba
+        self.active = True
+        self.progress += dt / 2000  # ≈2 s por ciclo
+
+        # Si completó el ciclo de bombeo
+        if self.progress >= 1:
+            self.progress = 0
+            near_well.remaining = max(0, near_well.remaining - int(near_well.capacity / 2))
+
+            # Llenar una cubeta
+            for item in player.inventory.all_items():
+                if "bucket" in item.name and getattr(item, "fill_level", 0) < 2:
+                    item.fill()
+                    print("💧 La bomba llenó una cubeta con agua limpia.")
+                    break
+
+            # Si todas las cubetas están llenas
+            else:
+                print("🚫 Todas las cubetas ya están llenas.")
+
+    def draw(self, screen, camera_x, camera_y):
+        """Dibuja la bomba y una barra de progreso cuando está activa."""
+        screen_x = self.x - camera_x
+        screen_y = self.y - camera_y
+        screen.blit(self.image, (screen_x, screen_y))
+
+        # Si está activa, dibujar barra azul
+        if self.active:
+            bar_width = int(self.size * 0.8)
+            bar_height = 8
+            bar_x = screen_x + (self.size - bar_width) // 2
+            bar_y = screen_y - 15
+
+            # Fondo gris
+            pygame.draw.rect(screen, (80, 80, 80), (bar_x, bar_y, bar_width, bar_height))
+            # Progreso azul
+            fill_width = int(bar_width * self.progress)
+            pygame.draw.rect(screen, (0, 180, 255), (bar_x, bar_y, fill_width, bar_height))

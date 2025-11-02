@@ -1,7 +1,7 @@
 import pygame
 import constants
 from constants import *
-from elements import Tree, Smallstone, FarmLand, Water, MineralIron
+from elements import Tree, Smallstone, FarmLand, Water, MineralIron, Well, MineralCopper
 import random
 import os
 from pygame import Surface
@@ -19,7 +19,8 @@ class WorldChunk:
         self.farmland_tiles = {}
         self.water_tiles = {}
         self.iron_minerals = []
-        
+        self.copper_minerals = []
+        self.wells = []
         
         
         chunk_seed = hash(f"{x},{y}")
@@ -29,7 +30,7 @@ class WorldChunk:
         # CHUNK INICIAL (0,0) - USAR TMX Y NO GENERAR NADA
         if x == 0 and y == 0:
             self.width = 1536
-            self.height = 1056
+            self.height = 1024
             # CHUNK VACÍO - solo el tilemap TMX
             self.trees = []
             self.small_stones = []
@@ -51,7 +52,9 @@ class WorldChunk:
                            ) for _ in range(10)
             ]
             
-            self.generate_surface_iron()
+            self.generate_surface_resource(MineralIron, self.iron_minerals, MINERAL_IRON, MINERAL_IRON_PROBABILITY)
+            self.generate_surface_resource(MineralCopper, self.copper_minerals, MINERAL_COPPER, MINERAL_COPPER_PROBABILITY)
+
             
             #generar el agua de los lagos
             if random.random() < WATER_GENERATION_PROBABILITY:
@@ -73,7 +76,17 @@ class WorldChunk:
                             
                             tile_key = (grid_x, grid_y)
                             self.water_tiles[tile_key] = Water(grid_x, grid_y)
-            
+            #generacion de pozos de forma aleatoria
+            if random.random() < WELL_GENERATION_PROBABILITY:
+                well_x = self.x + random.randint(0, width)
+                well_y = self.y + random.randint(0, height)
+                
+                
+                # Evita ponerlo sobre árboles o agua
+                if all(not pygame.Rect(well_x, well_y, GRASS, GRASS).colliderect(obj.rect)
+                    for obj in (self.trees + self.small_stones + list(self.water_tiles.values()))):
+                    self.wells.append(Well(well_x, well_y))
+                    
             # Enemigos solo en chunks que no sean el inicial
             self.enemies = []
             for _ in range(5):
@@ -88,48 +101,41 @@ class WorldChunk:
         
         random.setstate(old_state)
         
-    def generate_surface_iron(self):
-        # Solo generar hierro si no es el chunk inicial
+    def generate_surface_resource(self, resource_class, resource_list, size, probability):
+        """Genera minerales o recursos superficiales de forma genérica."""
         if self.x == 0 and self.y == 0:
             return
-            
-        for _ in range(20):  
-            iron_x = self.x + random.randint(0, self.width - MINERAL_IRON)
-            iron_y = self.y + random.randint(0, self.height - MINERAL_IRON)
-            
-            #verifica que se pueda poner es decir que no choque con arboles o algo
-            if self.is_valid_iron_position(iron_x, iron_y):
-                # Aplicar probabilidad
-                if random.random() < MINERAL_IRON_PROBABILITY:
-                    self.iron_minerals.append(MineralIron(iron_x, iron_y))
-    
-    def is_valid_iron_position(self, x, y):
-        iron_rect = pygame.Rect(x, y, MINERAL_IRON, MINERAL_IRON)
-        
 
+        for _ in range(20):  # cantidad base por chunk
+            rx = self.x + random.randint(0, self.width - size)
+            ry = self.y + random.randint(0, self.height - size)
+
+            if self.is_valid_resource_position(rx, ry, size, resource_list):
+                if random.random() < probability:
+                    resource_list.append(resource_class(rx, ry))
+
+
+    def is_valid_resource_position(self, x, y, size, existing_list):
+        """Verifica que un recurso no colisione con árboles, piedras, agua u otros recursos."""
+        test_rect = pygame.Rect(x, y, size, size)
+
+        # Evitar colisiones con árboles, piedras y agua
         for tree in self.trees:
-            tree_rect = pygame.Rect(tree.x, tree.y, tree.size, tree.size)
-            if iron_rect.colliderect(tree_rect):
+            if test_rect.colliderect(tree.rect):
                 return False
-        
-
         for stone in self.small_stones:
-            stone_rect = pygame.Rect(stone.x, stone.y, stone.size, stone.size)
-            if iron_rect.colliderect(stone_rect):
+            if test_rect.colliderect(stone.rect):
                 return False
-        
-
         for water_pos in self.water_tiles.keys():
             water_rect = pygame.Rect(water_pos[0], water_pos[1], constants.GRASS, constants.GRASS)
-            if iron_rect.colliderect(water_rect):
+            if test_rect.colliderect(water_rect):
                 return False
-        
-        for iron in self.iron_minerals:
-            existing_iron_rect = pygame.Rect(iron.x, iron.y, iron.size, iron.size)
-            if iron_rect.colliderect(existing_iron_rect):
+        for res in existing_list:
+            if test_rect.colliderect(res.rect):
                 return False
-        
+
         return True
+
         
     def update(self, player, dt, bullets_group, current_time):
         # Solo actualizar enemigos si no es el chunk inicial
@@ -178,6 +184,9 @@ class WorldChunk:
         self.trees = [tree for tree in self.trees if not tree.is_depleted()]
         self.small_stones = [stone for stone in self.small_stones if not stone.is_depleted()]
         self.iron_minerals = [iron for iron in self.iron_minerals if not iron.is_depleted()]
+        self.copper_minerals = [copper for copper in self.copper_minerals if not copper.is_depleted()]
+        self.wells = [well for well in self.wells if not well.is_depleted()]
+
         
         #REMOVER ENEMIGOS VENCIDOS
         self.enemies = [enemy for enemy in self.enemies if not enemy.is_dead()]
@@ -193,10 +202,19 @@ class WorldChunk:
         #DIBUJAR EL HIERRO ENCIMA 
         for iron in self.iron_minerals:
             iron.draw(screen, camera_x, camera_y)
+        
+        #dibja el cobre encima del tile del pasto
+        for copper in self.copper_minerals:
+            copper.draw(screen, camera_x, camera_y)
+
             
         #DIBUJAR EL AGUA ENCIMA DEL PASTO Y DE LAS PIEDRAS
         for tile_key, water in self.water_tiles.items():
             water.draw(screen, camera_x, camera_y)
+        
+        for well in self.wells:
+            well.draw(screen, camera_x, camera_y)
+
         
         # DIBUJAR ENEMIGOS
         for enemy in self.enemies:
@@ -227,7 +245,6 @@ class World:
         # CARGAR EL TILEMAP TMX
         self.tmx_map = None
         self.load_tmx_map()
-        self.load_collision_objects()
 
         
         # Solo cargar imagen de grass si no hay TMX o como respaldo
@@ -250,7 +267,7 @@ class World:
     def load_tmx_map(self):
         """Cargar el archivo TMX del asentamiento"""
         try:
-            tmx_path = os.path.join('assets', 'tilesets', 'asentamiento.tmx')
+            tmx_path = os.path.join('assets', 'tilesets', 'nonito.tmx')
             self.tmx_map = load_pygame(tmx_path)
             print(f"✅ TMX cargado: {self.tmx_map.width}x{self.tmx_map.height} tiles")
         except Exception as e:
@@ -391,21 +408,63 @@ class World:
         
     def add_placeable(self, item_name, x, y):
         """Agrega objetos colocables al mundo si el espacio está libre."""
-        # Evita poner objetos encima de otros
-        for obj in self.placeable_objects:
-            if obj.rect.collidepoint(x, y):
-                return False
+        # Determinar el tamaño base del objeto
+        default_size = 96  # Puedes cambiarlo a 64 si quieres que sea más compacto
 
-        # Crear el objeto adecuado según el tipo
+        # Crear un objeto temporal solo para obtener su tamaño
+        temp_obj = None
+        if item_name == 'work_bench':
+            temp_obj = CraftingTable(x, y)
+        elif item_name == 'furnace':
+            temp_obj = Furnace(x, y)
+        elif item_name == 'pump':
+            temp_obj = WaterPump(x, y)
+        
+        # Si no es un objeto conocido, salir
+        if not temp_obj:
+            print(f"⚠️ Objeto '{item_name}' no es reconocible.")
+            return False
+        
+        size = getattr(temp_obj, "size", default_size)
+        test_rect = pygame.Rect(x, y, size, size)
+
+        # Evita colocar encima de árboles, piedras, pozos u otros objetos
+        for obj in (self.trees + self.small_stones + self.placeable_objects + self.wells):
+            if hasattr(obj, "rect") and test_rect.colliderect(obj.rect):
+                # 🔄 Buscar una posición libre cercana (4 direcciones)
+                offsets = [(size, 0), (-size, 0), (0, size), (0, -size)]
+                found = False
+                for dx, dy in offsets:
+                    new_x, new_y = x + dx, y + dy
+                    new_rect = pygame.Rect(new_x, new_y, size, size)
+                    if all(
+                        not new_rect.colliderect(o.rect)
+                        for o in (self.trees + self.small_stones + self.placeable_objects + self.wells)
+                        if hasattr(o, "rect")
+                    ):
+                        x, y = new_x, new_y
+                        found = True
+                        break
+                if not found:
+                    print("❌ No se encontró espacio libre cerca, cancelando colocación.")
+                    return False
+                break  # ya se movió, salir del bucle principal
+
+        # Crear el objeto definitivo en la posición válida
         if item_name == 'work_bench':
             new_obj = CraftingTable(x, y)
         elif item_name == 'furnace':
             new_obj = Furnace(x, y)
+        elif item_name == 'pump':
+            new_obj = WaterPump(x, y)
         else:
             return False
 
         self.placeable_objects.append(new_obj)
+        print(f"✅ Objeto '{item_name}' colocado en ({x}, {y}) con tamaño {size}.")
         return True
+
+
 
     def get_nearby_placeable(self, player):
         """Devuelve el objeto colocable más cercano al jugador."""
@@ -450,26 +509,18 @@ class World:
         for obj in self.placeable_objects:
             obj.draw(screen, camera_x, camera_y)
 
-    def update_placeables(self, dt):
-        """Actualiza objetos colocables (si tienen animaciones o lógica propia)"""
+    def update_placeables(self, dt, player):
+        """Actualiza objetos colocables que necesiten referencia al mundo o al jugador."""
         for obj in self.placeable_objects:
             if hasattr(obj, 'update'):
-                obj.update(dt)
+                try:
+                    obj.update(dt, self, player)
+                except TypeError:
+                    # Algunos objetos (como CraftingTable o Furnace) solo usan dt
+                    obj.update(dt)
+
                 
-    def load_collision_objects(self):
-        """Lee las colisiones desde el TMX y las guarda como rectángulos."""
-        self.collision_rects = []
-        if not self.tmx_map:
-            return
-
-        # Buscar la capa llamada 'Colisiones'
-        for layer in self.tmx_map.visible_layers:
-            if hasattr(layer, "name") and layer.name.lower() == "colisiones":
-                for obj in layer:
-                    rect = pygame.Rect(obj.x, obj.y, obj.width, obj.height)
-                    self.collision_rects.append(rect)
-
-            
+                
     # Propiedades para obtener todos los elementos de los chunks activos
     @property
     def trees(self):
@@ -498,6 +549,14 @@ class World:
         for chunk in self.active_chunks.values():  
             all_iron.extend(chunk.iron_minerals)
         return all_iron
+    
+    @property
+    def copper_minerals(self):
+        all_copper = []
+        for chunk in self.active_chunks.values():  
+            all_copper.extend(chunk.copper_minerals)
+        return all_copper
+
     
     def add_farmland(self, x, y):
         chunk_key = self.get_chunk_key(x, y)
@@ -549,3 +608,10 @@ class World:
         for chunk in self.active_chunks.values():  
             all_enemies.extend(chunk.enemies)
         return all_enemies
+    
+    @property
+    def wells(self):
+        all_wells = []
+        for chunk in self.active_chunks.values():
+            all_wells.extend(chunk.wells)
+        return all_wells
