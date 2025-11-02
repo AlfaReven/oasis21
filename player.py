@@ -5,15 +5,14 @@ import random
 from inventory import Inventory
 import os
 from world import *
-from placeable import CraftingTable
+from placeable import CraftingTable, WaterPump, WaterTank
 from minigame_well import *
-
 
 class Player(Entities):
     def __init__(self, x, y, player_id=0, control_type="keyboard", joypad_id=0):
         super().__init__(x, y, "Player.png")  
         
-        # NUEVO: Atributos para multijugador
+        # Atributos para multijugador
         self.player_id = player_id
         self.control_type = control_type
         self.joypad_id = joypad_id
@@ -27,17 +26,13 @@ class Player(Entities):
             'level': 1
         })
         
-        # APARTADO PARA ATRIBUTOS DEL INVENTARIO DE EDUARDO
+        # Sistema de inventario
         self.inventory = Inventory()
         self._give_starter_items()
         
         self.show_inventory = False
-        self.item_images = {
-            "wood": self.load_item_image("woods.png"),
-            "stone": self.load_item_image("small_stone.png")
-        }
         
-        # ATRIBUTOS DE EDUARDO
+        # Atributos de supervivencia
         self.energy = MAX_ENERGY
         self.food = MAX_FOOD
         self.thirst = MAX_THIRST
@@ -45,7 +40,7 @@ class Player(Entities):
         
         self.font = pygame.font.Font(None, 24)
         
-        # ANIMACIONES DE HERRAMIENTAS
+        # Animaciones de herramientas
         self.action_sprite_sheet = pygame.image.load(os.path.join('assets', 'images', 'Player_Actions.png')).convert_alpha()
 
         # Propiedades para animaciones especiales
@@ -56,58 +51,36 @@ class Player(Entities):
         self.special_animation_delay = AXE_ANIMATION_DELAY
         self.tool_animations = self.load_tool_animations()
         
-        # NUEVO: Color diferente para cada jugador
-        if player_id == 0:
-            # Jugador 1 - Azul
-            color_filter = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
-            color_filter.fill((0, 0, 255, 50))  # Azul semi-transparente
-            self.image.blit(color_filter, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+        # Color diferente para cada jugador
+        self._apply_player_color()
+    
+    def _apply_player_color(self):
+        """Aplica color distintivo para cada jugador"""
+        color_filter = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
+        if self.player_id == 0:
+            color_filter.fill((0, 0, 255, 50))
         else:
-            # Jugador 2 - Rojo/Naranja
-            color_filter = pygame.Surface(self.image.get_size(), pygame.SRCALPHA)
-            color_filter.fill((255, 100, 0, 50))  # Naranja semi-transparente
-            self.image.blit(color_filter, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
-            
-    #ESTO LO PONGO POR CUESTRIONES DE DESARROLLO YA DESPUES LO QUITARE
-    # --- KIT DE DESARROLLO INICIAL ---
-        
-
-
+            color_filter.fill((255, 100, 0, 50))
+        self.image.blit(color_filter, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
 
     def _give_starter_items(self):
-        """Provee materiales iniciales al jugador (solo para pruebas)."""
-        print("🧰 Cargando kit de inicio para pruebas...")
-
+        """Provee materiales iniciales al jugador"""
         starter_items = {
-            'wood': 20,
-            'stone': 15,
-            'mineral_iron': 10,
-            'ingot_iron': 5,
-            'axe': 1,
-            'work_bench': 1,
-            'furnace': 1,
-            'pala': 1,
-            'ingot_copper': 5,
-            'mineral_copper': 5,
+            'wood': 5,
+            'stone': 5,
+            'mineral_iron': 3,
             'bucket': 1,
-            'pump':1,
+            'pump': 1,
+            'empty_tank': 1,
         }
 
         for item_name, qty in starter_items.items():
-            if item_name in self.inventory.item_images:
-                self.inventory.add_item(item_name, qty)
-            else:
-                print(f"⚠️ Item '{item_name}' no tiene imagen definida en inventory.")
-
+            self.inventory.add_item(item_name, qty)
     
-    def load_item_image(self, filename):
-        path = os.path.join('assets', 'images', filename)
-        image = pygame.image.load(path).convert_alpha()
-        return pygame.transform.scale(image, (40, 40))
-    
+    # === SISTEMA DE ANIMACIONES ===
     def load_tool_animations(self):
+        """Carga las animaciones de herramientas"""
         animations = {}
-        
         tool_rows = {
             'axe': {
                 'right': 3,
@@ -118,30 +91,33 @@ class Player(Entities):
         
         for tool_name, directions in tool_rows.items():
             animations[tool_name] = {}
-            
             for direction, row in directions.items():
-                frames = []
-                for frame in range(AXE_FRAMES):
-                    temp_surface = pygame.Surface((ACTION_FRAME_SIZE, ACTION_FRAME_SIZE), pygame.SRCALPHA)
-                    x = (frame % AXE_COLS) * ACTION_FRAME_SIZE
-                    frame_rect = pygame.Rect(x, row * ACTION_FRAME_SIZE, ACTION_FRAME_SIZE, ACTION_FRAME_SIZE)
-                    temp_surface.blit(self.action_sprite_sheet, (0, 0), frame_rect)
-                
-                    entity_scale = ENTITY / FRAME_SIZE  
-                    action_size = int(ACTION_FRAME_SIZE * entity_scale) 
-                    scaled_temp = pygame.transform.scale(temp_surface, (action_size, action_size))
-                    surface = pygame.Surface((ENTITY, ENTITY), pygame.SRCALPHA)
-                    
-                    offset_x = (ENTITY - action_size) // 2
-                    offset_y = (ENTITY - action_size) // 2
-                    
-                    surface.blit(scaled_temp, (offset_x, offset_y))
-                    frames.append(surface)
-                
-                animations[tool_name][direction] = frames
+                animations[tool_name][direction] = self._load_tool_frames(row)
         
         return animations
-    
+
+    def _load_tool_frames(self, row):
+        """Carga los frames de animación para una herramienta"""
+        frames = []
+        for frame in range(AXE_FRAMES):
+            temp_surface = pygame.Surface((ACTION_FRAME_SIZE, ACTION_FRAME_SIZE), pygame.SRCALPHA)
+            x = (frame % AXE_COLS) * ACTION_FRAME_SIZE
+            frame_rect = pygame.Rect(x, row * ACTION_FRAME_SIZE, ACTION_FRAME_SIZE, ACTION_FRAME_SIZE)
+            temp_surface.blit(self.action_sprite_sheet, (0, 0), frame_rect)
+        
+            entity_scale = ENTITY / FRAME_SIZE  
+            action_size = int(ACTION_FRAME_SIZE * entity_scale) 
+            scaled_temp = pygame.transform.scale(temp_surface, (action_size, action_size))
+            surface = pygame.Surface((ENTITY, ENTITY), pygame.SRCALPHA)
+            
+            offset_x = (ENTITY - action_size) // 2
+            offset_y = (ENTITY - action_size) // 2
+            
+            surface.blit(scaled_temp, (offset_x, offset_y))
+            frames.append(surface)
+        
+        return frames
+
     def start_axe_animation(self):
         """Inicia la animación del hacha"""
         self.special_animation = True
@@ -151,7 +127,7 @@ class Player(Entities):
         self.moving = False
     
     def update_special_animation(self, dt):
-        #metodo que actualiza laas animaciones especiales, herramientas, etc
+        """Actualiza animaciones especiales"""
         if not self.special_animation:
             return
             
@@ -161,42 +137,40 @@ class Player(Entities):
             self.special_animation_timer = current_time
             self.special_animation_frame += 1
             
-            # Si llegamos al final de la animación, terminarla
             if self.special_animation_frame >= AXE_FRAMES:
                 self.special_animation = False
                 self.animation_type = None
                 self.special_animation_frame = 0
-    
+
     def get_special_animation_frame(self):
+        """Obtiene el frame actual de animación especial"""
         if not self.special_animation or self.animation_type not in self.tool_animations:
             return None
             
-        # PARA SABER QUE FRAME DEL PLAYER ACTIONS USAR
-        if self.current_state in [IDLE_RIGHT, WALK_RIGHT]:
-            direction = 'right'
-        elif self.current_state in [IDLE_DOWN, WALK_DOWN]:
-            direction = 'down'
-        elif self.current_state in [IDLE_UP, WALK_UP]:
-            direction = 'up'
-        else:
-            direction = 'right'  #SI NO POS POR DEFFAUL MIRA A LA DERECHA
-            
-        #BUSCAR EL FRAME EN LA VARIBLE CON EL DICCIONARIO
+        direction = self._get_animation_direction()
         if direction in self.tool_animations[self.animation_type]:
             frame = self.tool_animations[self.animation_type][direction][self.special_animation_frame]
             
-            #SI ESTA MIRANDO A LA IZQUIERDA LO GIRAMOS 
             if self.facing_left and direction == 'right':
                 frame = pygame.transform.flip(frame, True, False)
                 
             return frame
         
         return None
-    
+
+    def _get_animation_direction(self):
+        """Determina la dirección para la animación"""
+        if self.current_state in [IDLE_RIGHT, WALK_RIGHT]:
+            return 'right'
+        elif self.current_state in [IDLE_DOWN, WALK_DOWN]:
+            return 'down'
+        elif self.current_state in [IDLE_UP, WALK_UP]:
+            return 'up'
+        else:
+            return 'right'
+
     def update_animation(self, dt):
-        """Actualiza las animaciones de eduardo
-        porque tiene animaciones especiales para el uso de herramientas y pistolas"""
-        #primero usamos las animaciones especiales y ya despues usamos el metodo de la clase entities para las demas animaciones
+        """Actualiza las animaciones"""
         if self.special_animation:
             self.update_special_animation(dt)
             special_frame = self.get_special_animation_frame()
@@ -206,8 +180,9 @@ class Player(Entities):
             return
         super().update_animation(dt)
     
+    # === SISTEMA DE RENDERIZADO ===
     def draw(self, screen, camera_x, camera_y):
-        #lo primero es dibujar a eduardo pero centrado en chunnk
+        """Dibuja al jugador en pantalla"""
         screen_x = self.x - camera_x
         screen_y = self.y - camera_y
 
@@ -217,61 +192,34 @@ class Player(Entities):
             current_image = pygame.transform.flip(current_image, True, False)
         
         screen.blit(current_image, (screen_x, screen_y))
-        
-        # NUEVO: Dibujar identificador del jugador
-        if hasattr(self, 'player_id'):
-            player_text = self.font.render(f"P{self.player_id + 1}", True, (255, 255, 255))
-            screen.blit(player_text, (screen_x, screen_y - 20))
+        self._draw_player_label(screen, screen_x, screen_y)
+
+    def _draw_player_label(self, screen, screen_x, screen_y):
+        """Dibuja la etiqueta del jugador"""
+        player_text = self.font.render(f"P{self.player_id + 1}", True, (255, 255, 255))
+        screen.blit(player_text, (screen_x, screen_y - 20))
     
+    # === SISTEMA DE MOVIMIENTO ===
     def update(self, dt, obstacles):
+        """Actualiza el estado del jugador"""
         if self.special_animation:
             self.moving = False
             return
             
-        # NUEVO: Control diferente según tipo de control
         if self.control_type == "keyboard":
             self.handle_keyboard_input(dt, obstacles)
         else:
             self.handle_joypad_input(dt, obstacles)
-    
+
     def handle_keyboard_input(self, dt, obstacles):
-        """Maneja entrada de teclado para ambos jugadores"""
+        """Maneja entrada de teclado"""
         keys = pygame.key.get_pressed()
         
-        # PARA SABER SI EDUARDO ANDA CORRIENDO 
-        if self.player_id == 0:
-            # Jugador 1: Shift para correr
-            self.is_running = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
-        else:
-            # Jugador 2: Ctrl derecho para correr
-            self.is_running = keys[pygame.K_RCTRL]
-        
+        self.is_running = self._get_run_state(keys)
         current_speed = self.speed * 2 if self.is_running else self.speed
 
-        dx, dy = 0, 0
+        dx, dy = self._get_movement_direction(keys)
         
-        # Jugador 1 usa WASD, Jugador 2 usa Flechas
-        if self.player_id == 0:
-            if keys[pygame.K_w]:
-                dy = -5
-            if keys[pygame.K_s]:
-                dy = 5
-            if keys[pygame.K_a]:
-                dx = -5
-            if keys[pygame.K_d]:
-                dx = 5
-        else:
-            # Jugador 2 usa flechas
-            if keys[pygame.K_UP]:
-                dy = -5
-            if keys[pygame.K_DOWN]:
-                dy = 5
-            if keys[pygame.K_LEFT]:
-                dx = -5
-            if keys[pygame.K_RIGHT]:
-                dx = 5
-        
-        # Movimiento diagonal
         if dx != 0 and dy != 0:
             dx *= 0.7071
             dy *= 0.7071
@@ -279,82 +227,304 @@ class Player(Entities):
         if dx != 0 or dy != 0:
             self.move(dx * current_speed, dy * current_speed, obstacles)
         else:
-            self.moving = False
-            if self.current_state == WALK_DOWN:
-                self.current_state = IDLE_DOWN
-            elif self.current_state == WALK_UP:
-                self.current_state = IDLE_UP
-            elif self.current_state == WALK_RIGHT:
-                self.current_state = IDLE_RIGHT
-    
-    """Esta cosa lo que hace es saber si eduardo esta interactuando con el mundo"""
+            self._set_idle_state()
+
+    def _get_run_state(self, keys):
+        """Determina si el jugador está corriendo"""
+        if self.player_id == 0:
+            return keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        else:
+            return keys[pygame.K_RCTRL]
+
+    def _get_movement_direction(self, keys):
+        """Obtiene la dirección del movimiento desde el teclado"""
+        dx, dy = 0, 0
+        
+        if self.player_id == 0:
+            if keys[pygame.K_w]: dy = -5
+            if keys[pygame.K_s]: dy = 5
+            if keys[pygame.K_a]: dx = -5
+            if keys[pygame.K_d]: dx = 5
+        else:
+            if keys[pygame.K_UP]: dy = -5
+            if keys[pygame.K_DOWN]: dy = 5
+            if keys[pygame.K_LEFT]: dx = -5
+            if keys[pygame.K_RIGHT]: dx = 5
+        
+        return dx, dy
+
+    def _set_idle_state(self):
+        """Establece el estado de reposo del jugador"""
+        self.moving = False
+        if self.current_state == WALK_DOWN:
+            self.current_state = IDLE_DOWN
+        elif self.current_state == WALK_UP:
+            self.current_state = IDLE_UP
+        elif self.current_state == WALK_RIGHT:
+            self.current_state = IDLE_RIGHT
+
+    # === SISTEMA DE INTERACCIÓN ===
     def interact(self, world):
-        #si esta en medio de una animacion especial es decir talando o usando herramientas
+        """Interacción básica con el mundo"""
         if self.special_animation:
             return
             
-        #para añadir tierras de cultivo
-        keys = pygame.key.get_pressed()
-        if keys[pygame.K_t]:
+        if pygame.key.get_pressed()[pygame.K_t]:
             world.add_farmland(self.x, self.y) 
             return
         
-        #aqui llamamos al metodo is near para que no tale todos los arboles del chunk de golpe
-        for tree in world.trees:
-            if self.is_near(tree):
-                has_item = self.inventory.has_item_equipped()
-                if has_item:
-                    self.start_axe_animation()
-                if tree.chop(with_axe=has_item):
-                    cantidad = 2 if has_item else 1
-                    self.inventory.add_item('wood', cantidad)
-                return
-                
-        for stone in world.small_stones:
-            if self.is_near(stone):
-                if stone.collect():
-                    self.inventory.add_item('stone')
-                return
-        
-        for iron in world.iron_minerals: 
-            if self.is_near(iron):
-                if iron.collect():
-                    self.inventory.add_item('mineral_iron')
-                return
-        for copper in world.copper_minerals:
-            if self.is_near(copper):
-                if copper.collect():
-                    self.inventory.add_item('mineral_copper')
-                return
+        return self._interact_with_resources(world)
 
+    def _interact_with_resources(self, world):
+        """Interactúa con recursos del mundo"""
+        interactions = [
+            (world.trees, 'wood', True),
+            (world.small_stones, 'stone', False),
+            (world.iron_minerals, 'mineral_iron', False),
+            (world.copper_minerals, 'mineral_copper', False)
+        ]
         
+        for resource_list, item_name, requires_axe in interactions:
+            for resource in resource_list:
+                if self.is_near(resource):
+                    return self._handle_resource_interaction(resource, item_name, requires_axe)
+        
+        # Interacción con pozos
         for well in world.wells:
             if self.is_near(well):
-                # Verificar que tiene cubeta en alguna mano
-                has_bucket = (
-                    (self.inventory.left_hand and self.inventory.left_hand.name == "bucket")
-                    or (self.inventory.right_hand and self.inventory.right_hand.name == "bucket")
-                )
-                
-                if not has_bucket:
-                    print("🪣 Necesitas tener una cubeta equipada para sacar agua.")
-                    return
-                
-                # Si tiene cubeta, iniciar el minijuego
-                start_well_minigame(self, well)
-                return
-
-
-    # Los demás métodos se mantienen igual...
-    def draw_inventory(self, screen, show_inventory=False):
-        self.inventory.draw(screen, show_inventory)
+                return self._handle_well_interaction(well, world)
         
-        if show_inventory:
-            font = pygame.font.Font(None, 24)
-            close_inventory_text = font.render("Press 'I' for close inventory", True, WHITE)
-            screen.blit(close_inventory_text, (WIDTH // 2 - close_inventory_text.get_width() // 2,
-                                               HEIGHT - 40))
-    
+        return False
+
+    def _handle_resource_interaction(self, resource, item_name, requires_axe):
+        """Maneja la interacción con un recurso específico"""
+        if requires_axe:
+            has_tool = self.inventory.has_axe_equipped()
+            if has_tool:
+                self.start_axe_animation()
+            if resource.chop(with_axe=has_tool):
+                cantidad = 2 if has_tool else 1
+                self.inventory.add_item(item_name, cantidad)
+                return True
+        else:
+            if resource.collect():
+                self.inventory.add_item(item_name)
+                return True
+        return False
+
+    def _handle_well_interaction(self, well, world):
+        """Maneja la interacción con pozos"""
+        if self.inventory.has_item_equipped("pump"):
+            return self._handle_pump_placement(well, world)
+        
+        bucket = self._get_equipped_bucket()
+        if bucket:
+            start_well_minigame(self, well, bucket)
+            return True
+        
+        # Mostrar información del pozo
+        status, percentage = well.get_water_status()
+        return True
+
+    def _handle_pump_placement(self, well, world):
+        """Coloca bomba en el pozo"""
+        # Verificar si ya hay bomba en este pozo
+        for obj in world.placeable_objects:
+            if hasattr(obj, 'object_type') and obj.object_type == 'pump':
+                dx = abs(obj.x - well.x)
+                dy = abs(obj.y - well.y)
+                if dx < 50 and dy < 50:
+                    return False
+        
+        # Colocar bomba
+        if world.add_placeable("pump", well.x, well.y):
+            self.inventory.remove_item("pump", 1)
+            return True
+        return False
+
+    def _get_equipped_bucket(self):
+        """Obtiene la cubeta equipada en las manos"""
+        if self.inventory.right_hand and "bucket" in self.inventory.right_hand.name:
+            return self.inventory.right_hand
+        elif self.inventory.left_hand and "bucket" in self.inventory.left_hand.name:
+            return self.inventory.left_hand
+        return None
+
+    def interact_with_objects(self, world):
+        """Interactúa con objetos cercanos"""
+        if self.special_animation:
+            return False
+
+        # Buscar objetos colocables
+        for obj in world.placeable_objects:
+            if self._is_object_in_range(obj, 150) and hasattr(obj, 'interact'):
+                if obj.interact(self):
+                    return True
+
+        # Buscar pozos
+        for well in world.wells:
+            if self._is_object_in_range(well, 150):
+                return self._handle_well_interaction(well, world)
+
+        return False
+
+    def _is_object_in_range(self, obj, range_distance):
+        """Verifica si un objeto está dentro del rango de interacción"""
+        distance = ((self.x - obj.x) ** 2 + (self.y - obj.y) ** 2) ** 0.5
+        return distance <= range_distance
+
+    def use_bucket(self, world):
+        """Usar cubeta para recoger agua o interactuar con tanques"""
+        bucket = self._get_equipped_bucket()
+        if not bucket:
+            return False
+        
+        # Llenar cubeta de agua del suelo
+        if world.is_water_at(self.x, self.y):
+            if not getattr(bucket, 'has_water', False):
+                bucket.fill()
+                return True
+        
+        # Interactuar con tanques cercanos
+        nearby_tank = world.get_nearby_placeable(self)
+        if nearby_tank and hasattr(nearby_tank, 'water_tank'):
+            return nearby_tank.interact(self)
+        
+        return False
+
+    def drink_water(self):
+        """Permite beber agua desde cubetas con agua, ya sea equipadas o en el inventario."""
+        # 1️⃣ Primero buscar si tiene cubeta equipada
+        bucket = self._get_equipped_bucket()
+        if bucket and getattr(bucket, "has_water", False):
+            self.update_thirst(+30)
+            bucket.empty()
+            print("💧 Bebiendo agua desde cubeta equipada.")
+            return True
+
+        # 2️⃣ Si no hay cubeta equipada, buscar en hotbar e inventario
+        for slot in self.inventory.hotbar + [s for row in self.inventory.inventory for s in row]:
+            if slot and "bucket" in slot.name and getattr(slot, "has_water", False):
+                self.update_thirst(+30)
+                slot.empty()
+                print("💧 Bebiendo agua desde cubeta en inventario.")
+                return True
+
+        # 3️⃣ Si no hay cubeta con agua en ningún lado
+        print("⚠️ No tienes cubeta con agua.")
+        return False
+
+
+    # === SISTEMA DE COLOCACIÓN Y RECOGIDA ===
+    def place_object(self, world):
+        """Coloca objetos en el mundo - MEJORADO para objetos grandes"""
+        if self.special_animation:
+            return False
+            
+        item_to_place = self._get_item_to_place()
+        if not item_to_place:
+            return False
+
+        # Para objetos grandes, aumentar la distancia de colocación
+        place_distance = 96 if item_to_place == 'water_tank' else 60
+        
+        place_x, place_y = self._get_placement_position(place_distance)
+        
+        if hasattr(world, 'add_placeable'):
+            success = world.add_placeable(item_to_place, place_x, place_y)
+            if success:
+                self._remove_equipped_item()
+                return True
+                
+        return False
+
+    def _get_placement_position(self, place_distance):
+        """Calcula la posición de colocación basada en la dirección"""
+        if self.current_state in [IDLE_RIGHT, WALK_RIGHT]:
+            if self.facing_left:
+                return self.x - place_distance, self.y
+            else:
+                return self.x + place_distance, self.y
+        elif self.current_state in [IDLE_DOWN, WALK_DOWN]:
+            return self.x, self.y + place_distance
+        elif self.current_state in [IDLE_UP, WALK_UP]:
+            return self.x, self.y - place_distance
+        else:
+            return self.x + place_distance, self.y
+            return False
+
+    def _get_item_to_place(self):
+        """Obtiene el item a colocar de las manos equipadas"""
+        if self.inventory.right_hand:
+            return self.inventory.right_hand.name
+        elif self.inventory.left_hand:
+            return self.inventory.left_hand.name
+        return None
+
+    def _remove_equipped_item(self):
+        """Remueve el item equipado después de colocarlo"""
+        if self.inventory.right_hand:
+            self.inventory.right_hand = None
+        else:
+            self.inventory.left_hand = None
+
+    def pick_placeable(self, world):
+        """Recoge un objeto colocado cercano"""
+        for obj in world.placeable_objects[:]:
+            if self._is_object_in_range(obj, 64):
+                item_name = self._get_placeable_item_name(obj)
+                if self._can_add_to_inventory(item_name):
+                    self.inventory.add_item(item_name, 1)
+                    world.placeable_objects.remove(obj)
+                    return True
+        return False
+
+    def _get_placeable_item_name(self, obj):
+        """Obtiene el nombre del item basado en el objeto colocable"""
+        if hasattr(obj, 'object_type'):
+            item_name = obj.object_type
+        else:
+            item_name = obj.__class__.__name__.lower()
+        
+        item_mapping = {
+            'pump': 'pump',
+            'water_tank': 'water_tank', 
+            'work_bench': 'work_bench',
+            'furnace': 'furnace'
+        }
+        
+        return item_mapping.get(item_name, item_name)
+
+    def _can_add_to_inventory(self, item_name):
+        """Verifica si se puede añadir el item al inventario"""
+        if item_name in self.inventory.stackable_items:
+            return self._has_stack_space(item_name) or self._has_empty_slots()
+        else:
+            return self._has_empty_slots()
+
+    def _has_stack_space(self, item_name):
+        """Verifica si hay espacio en stacks existentes"""
+        max_stack = self.inventory.stackable_items[item_name]
+        
+        # Buscar en hotbar
+        for slot in self.inventory.hotbar:
+            if slot and slot.name == item_name and slot.quantity < max_stack:
+                return True
+                
+        # Buscar en inventario principal
+        for row in self.inventory.inventory:
+            for slot in row:
+                if slot and slot.name == item_name and slot.quantity < max_stack:
+                    return True
+        return False
+
+    def _has_empty_slots(self):
+        """Verifica si hay slots vacíos"""
+        hotbar_empty = any(slot is None for slot in self.inventory.hotbar)
+        inventory_empty = any(slot is None for row in self.inventory.inventory for slot in row)
+        return hotbar_empty or inventory_empty
+
+    # === SISTEMA DE SUPERVIVENCIA ===
     def update_energy(self, amount):
         self.energy = max(0, min(self.energy + amount, MAX_ENERGY))
     
@@ -362,21 +532,8 @@ class Player(Entities):
         self.food = max(0, min(self.food + amount, MAX_FOOD))
         
     def update_thirst(self, amount):
-        """Actualiza la sed de Eduardo (0–MAX_THIRST)."""
         self.thirst = max(0, min(self.thirst + amount, MAX_THIRST))
 
-    def drink_water(self):
-        """Eduardo bebe agua de una cubeta si tiene."""
-        for item in self.inventory.all_items():
-            if "bucket" in item.name and getattr(item, "fill_level", 0) > 0:
-                item.empty()
-                self.update_thirst(+20)
-                print("🥤 Eduardo bebió agua de su cubeta.")
-                break
-        else:
-            print("🚫 No tienes cubetas con agua.")
-
-        
     def update_stamina(self, amount):
         self.stamina = max(0, min(self.stamina + amount, MAX_STAMINA))
     
@@ -384,37 +541,35 @@ class Player(Entities):
         self.stats['health'] = max(0, min(self.stats['health'] + amount, MAX_HEALTH))
         
     def draw_status_bars(self, screen):
+        """Dibuja las barras de estado del jugador"""
         bar_width = 100
         bar_height = 10
         x_offset = 10
-        y_offset = 50 + (self.player_id * 80)  # NUEVO: Offset diferente por jugador
+        y_offset = 50 + (self.player_id * 80)
         
-        # NUEVO: Etiqueta del jugador
+        self._draw_player_label_status(screen, x_offset, y_offset)
+        self._draw_status_bar(screen, x_offset, y_offset, bar_width, bar_height, 
+                             self.energy / MAX_ENERGY, ENERGY_COLOR, "Energía")
+        self._draw_status_bar(screen, x_offset, y_offset + 15, bar_width, bar_height,
+                             self.food / MAX_FOOD, FOOD_COLOR, "Comida")
+        self._draw_status_bar(screen, x_offset, y_offset + 30, bar_width, bar_height,
+                             self.thirst / MAX_THIRST, THIRST_COLOR, "Sed")
+        self._draw_status_bar(screen, x_offset, y_offset + 45, bar_width, bar_height,
+                             self.stamina / MAX_STAMINA, STAMINA_COLOR, "Stamina")
+
+    def _draw_player_label_status(self, screen, x, y):
+        """Dibuja la etiqueta del jugador para el HUD"""
         player_label = self.font.render(f"Jugador {self.player_id + 1}", True, 
                                       (0, 100, 255) if self.player_id == 0 else (255, 100, 0))
-        screen.blit(player_label, (x_offset, y_offset - 20))
+        screen.blit(player_label, (x, y - 20))
 
-        # Energía
-        pygame.draw.rect(screen, BAR_BACKGROUND, (x_offset, y_offset, bar_width, bar_height))
-        pygame.draw.rect(screen, ENERGY_COLOR, (x_offset, y_offset, bar_width * (self.energy / MAX_ENERGY), bar_height))
-
-        # Comida
-        y_offset += 15
-        pygame.draw.rect(screen, BAR_BACKGROUND, (x_offset, y_offset, bar_width, bar_height))
-        pygame.draw.rect(screen, FOOD_COLOR, (x_offset, y_offset, bar_width * (self.food / MAX_FOOD), bar_height))
-        
-        # Sed
-        y_offset += 15
-        pygame.draw.rect(screen, BAR_BACKGROUND, (x_offset, y_offset, bar_width, bar_height))
-        pygame.draw.rect(screen, THIRST_COLOR, (x_offset, y_offset, bar_width * (self.thirst / MAX_THIRST), bar_height))   
-        
-        # Stamina
-        y_offset += 15
-        pygame.draw.rect(screen, BAR_BACKGROUND, (x_offset, y_offset, bar_width, bar_height))
-        pygame.draw.rect(screen, STAMINA_COLOR, (x_offset, y_offset, bar_width * (self.stamina / MAX_STAMINA), bar_height))
+    def _draw_status_bar(self, screen, x, y, width, height, ratio, color, label):
+        """Dibuja una barra de estado individual"""
+        pygame.draw.rect(screen, BAR_BACKGROUND, (x, y, width, height))
+        pygame.draw.rect(screen, color, (x, y, width * ratio, height))
         
     def update_status(self):
-        # Aplicar multiplicadores si está corriendo
+        """Actualiza el estado de supervivencia del jugador"""
         food_rate = FOOD_DECREASE_RATE * (RUN_FOOD_DECREASE_MULTIPLER if self.is_running else 1)
         thirst_rate = THIRST_DECREASE_RATE * (RUN_THIRST_DECREASE_MULTIPLER if self.is_running else 1)
             
@@ -428,14 +583,8 @@ class Player(Entities):
             
         if not self.is_running:
             self.update_stamina(STAMINA_INCREASE_RATE)
-    
-    def attack(self, enemies):
-        for enemy in enemies:
-            if self.is_near(enemy):
-                damage = self.take_damage(enemy, 'ranged')
-                return damage
-        return 0
-    
+
+    # === SISTEMA DE EXPERIENCIA ===
     def add_experience(self, exp):
         self.stats['experience'] += exp
         if self.stats['experience'] >= self.stats['level'] * 100:
@@ -447,107 +596,3 @@ class Player(Entities):
         self.stats['max_health'] += 10
         self.stats['health'] = self.stats['max_health']
         self.stats['force'] += 2
-        print(f"¡Nivel up! Jugador {self.player_id + 1} ahora es nivel {self.stats['level']}")
-    
-
-    def place_object(self, world):
-        """Metodo para hacer que eduardo ponga obejtos en el mapa y se tomen como parte del mundo pero solo si el item esta en la 
-        lista de obejtos colocables"""
-        if hasattr(self, 'special_animation') and self.special_animation:
-            return False
-            
-        # Verificar si tiene objeto en las manos
-        if not (self.inventory.right_hand or self.inventory.left_hand):
-            return False
-
-        item_to_place = None
-        hand_used = None
-        
-        if self.inventory.right_hand:
-            item_to_place = self.inventory.right_hand.name
-            hand_used = 'right'
-        elif self.inventory.left_hand:
-            item_to_place = self.inventory.left_hand.name
-            hand_used = 'left'
-        
-        
-        #Determinar donde pondra el obejto y en que direccion 
-        place_distance = 60
-        if self.current_state in [IDLE_RIGHT, WALK_RIGHT]:
-            if self.facing_left:
-                place_x = self.x - place_distance
-                place_y = self.y
-            else:
-                place_x = self.x + place_distance
-                place_y = self.y
-        elif self.current_state in [IDLE_DOWN, WALK_DOWN]:
-            place_x = self.x
-            place_y = self.y + place_distance
-        elif self.current_state in [IDLE_UP, WALK_UP]:
-            place_x = self.x
-            place_y = self.y - place_distance
-        else:
-            place_x = self.x + place_distance
-            place_y = self.y
-        
-        #considerando los metodos de world trata de ponerlo si es que no hay anda que se ocupe ese clugar
-        if hasattr(world, 'add_placeable'):
-            success = world.add_placeable(item_to_place, place_x, place_y)
-            
-            if success:
-                if hand_used == 'right':
-                    self.inventory.right_hand = None
-                else:
-                    self.inventory.left_hand = None
-            else:
-                return success
-        else:
-            return False
-
-    def interact_with_objects(self, world):
-        """Interactúa con objetos cercanos cuando se presiona E"""
-        if hasattr(self, 'special_animation') and self.special_animation:
-            return False
-            
-        # Buscar objetos colocables cercanos
-        if hasattr(world, 'get_nearby_placeable'):
-            nearby_object = world.get_nearby_placeable(self)
-            if nearby_object and hasattr(nearby_object, 'interact'):
-                return nearby_object.interact(self)
-
-        for tree in world.trees:
-            if self.is_near(tree):
-                has_axe = self.inventory.has_item_equipped()
-                if has_axe:
-                    self.start_axe_animation()
-
-                
-                if tree.chop(with_axe=has_axe):
-                    self.inventory.add_item('wood')
-                return True
-                
-        for stone in world.small_stones:
-            if self.is_near(stone):
-                if stone.collect():
-                    self.inventory.add_item('stone')
-                return True
-        
-        for iron in world.iron_minerals:
-            if self.is_near(iron):
-                if iron.collect():
-                    self.inventory.add_item('mineral_iron')
-                return True
-        
-        return False
-    
-    def pick_placeable(self, world):
-        """Permite recoger un objeto colocado cercano."""
-        for obj in world.placeable_objects:
-            if self.is_near(obj):
-                if len(self.inventory.hotbar) < len(world.placeable_objects):
-                    item_name = obj.__class__.__name__.lower()
-                    self.inventory.add_item(item_name, 1)
-                    world.placeable_objects.remove(obj)
-                    print(f"♻️ Has recogido {item_name}.")
-                    return True
-        return False

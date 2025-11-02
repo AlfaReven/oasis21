@@ -259,28 +259,92 @@ class Well:
     def __init__(self, x, y, capacity=None):
         self.x = x
         self.y = y
-        self.capacity = capacity if capacity else random.randint(3, 6)
+        self.capacity = capacity if capacity else random.randint(50, 200)
         self.remaining = self.capacity
-        self.purity = random.uniform(0.7, 1.0)  # pureza inicial (0 a 1)
-        self.size = constants.GRASS * 4
-        self.image = pygame.image.load(os.path.join('assets', 'images', 'well.png')).convert_alpha()
-        self.image = pygame.transform.scale(self.image, (self.size, self.size))
+        self.purity = random.uniform(0.7, 1.0)
+        self.size = GRASS * 4
+        # Cargar ambos sprites
+        self.image_full = self.load_image("well.png")
+        self.image_empty = self.load_image("well_empty.png")
+        self.image = self.image_full  # Sprite actual
         self.rect = self.image.get_rect(center=(x, y))
+        self.is_interactable = True
+        
+    def get_water_status(self):
+        """Devuelve el estado del agua en el pozo"""
+        percentage = (self.remaining / self.capacity) * 100
+        
+        if self.remaining <= 0:
+            status = "seco"
+        elif percentage < 25:
+            status = "muy bajo"
+        elif percentage < 50:
+            status = "bajo" 
+        elif percentage < 75:
+            status = "medio"
+        else:
+            status = "lleno"
+            
+        return status, percentage
+
+    def load_image(self, filename):
+        """Carga una imagen del pozo"""
+        image_path = os.path.join('assets', 'images', filename)
+        if os.path.exists(image_path):
+            image = pygame.image.load(image_path).convert_alpha()
+            return pygame.transform.scale(image, (self.size, self.size))
+        else:
+            # Placeholder si no existe la imagen
+            surface = pygame.Surface((self.size, self.size), pygame.SRCALPHA)
+            pygame.draw.rect(surface, (100, 100, 100, 128), (0, 0, self.size, self.size))
+            return surface
+
+    def extract_water(self, amount=10):
+        """Extrae agua del pozo y actualiza sprite si se seca"""
+        if self.remaining <= 0:
+            return 0
+            
+        actual_amount = min(amount, self.remaining)
+        self.remaining -= actual_amount
+        
+        # Cambiar sprite si se secó
+        if self.remaining <= 0 and self.image != self.image_empty:
+            self.image = self.image_empty
+            self.is_interactable = False  # Ya no se puede interactuar
+        
+        # Reducir pureza
+        purity_reduction = random.uniform(0.01, 0.05)
+        self.purity = max(0.3, self.purity - purity_reduction)
+        
+        return actual_amount
+
+    def is_depleted(self):
+        """NO eliminar el pozo, solo marcarlo como seco"""
+        return False  # Nunca eliminar el pozo, solo cambiar sprite
 
     def draw(self, screen, camera_x, camera_y):
         screen_x = self.x - camera_x
         screen_y = self.y - camera_y
-        if (0 <= screen_x <= WIDTH and 0 <= screen_y <= HEIGHT):
+        
+        if (-self.size <= screen_x <= WIDTH and -self.size <= screen_y <= HEIGHT):
             screen.blit(self.image, (screen_x, screen_y))
-
-    def extract_water(self):
-        """Simula una extracción de agua"""
-        if self.remaining > 0:
-            self.remaining -= 1
-            # Disminuye pureza ligeramente
-            self.purity = max(0, self.purity - 0.05)
-            return True
-        return False
-
-    def is_depleted(self):
-        return self.remaining <= 0
+            
+            # Solo dibujar barra de agua si el pozo tiene agua
+            if self.remaining > 0:
+                bar_width = 60
+                bar_height = 8
+                bar_x = screen_x + (self.size - bar_width) // 2
+                bar_y = screen_y - 15
+                
+                pygame.draw.rect(screen, (50, 50, 50), (bar_x, bar_y, bar_width, bar_height))
+                fill_width = int(bar_width * (self.remaining / self.capacity))
+                
+                if self.purity > 0.8:
+                    color = (0, 150, 255)
+                elif self.purity > 0.5:
+                    color = (0, 100, 200)
+                else:
+                    color = (100, 100, 255)
+                    
+                pygame.draw.rect(screen, color, (bar_x, bar_y, fill_width, bar_height))
+                pygame.draw.rect(screen, WHITE, (bar_x, bar_y, bar_width, bar_height), 1)

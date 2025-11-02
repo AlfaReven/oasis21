@@ -9,4 +9,4 @@ def remove_background(input_path, output_path):
         
     print(f"foto guardada en: {output_path}")
     
-remove_background("cubetafull.png", "bucket_full.png")
+remove_background("tanque.png", "tank_half.png")

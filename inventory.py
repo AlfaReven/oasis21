@@ -8,75 +8,74 @@ import os
 import constants
 
 class InventoryItem:
-    def __init__(self, name, image_path=None, quantity=1, fill_level=0):
-        """
-        name: nombre del ítem (por ejemplo 'bucket')
-        image_path: ruta manual a la imagen (si se quiere forzar)
-        quantity: cantidad de ítems
-        fill_level: nivel de llenado (solo aplica a ítems tipo 'bucket')
-            0 = vacío
-            1 = medio lleno
-            2 = lleno
-        """
+    def __init__(self, name, image_path=None, quantity=1, fill_level=0, current_liters=0):
         self.name = name
         self.quantity = quantity
-        self.fill_level = fill_level
+        self.fill_level = fill_level  # 0=vacío, 1=medio, 2=lleno
+        self.current_liters = current_liters  # NUEVO: litros actuales
+        self.max_liters = 20  # NUEVO: capacidad máxima de la cubeta
         self.image_path = image_path
         self.image = None
         self.dragging = False
         self.drag_offset = (0, 0)
-
-        self.update_image()  # Carga inicial de sprite
-
-    def update_image(self):
-        """Carga la imagen adecuada según nombre o nivel de llenado."""
-        # Si el ítem es una cubeta, cambia dinámicamente el sprite
-        if "bucket" in self.name:
-            state_map = {
-                0: "bucket.png",
-                1: "bucket_half.png",
-                2: "bucket_full.png"
-            }
-            filename = state_map.get(self.fill_level, "bucket.png")
-            image_path = os.path.join("assets", "images", filename)
-        else:
-            # Para otros ítems, usa la ruta normal
-            if self.image_path:
-                image_path = self.image_path
-            else:
-                image_path = os.path.join("assets", "images", f"{self.name}.png")
-
-        if not os.path.exists(image_path):
-            # Placeholder visual si no se encuentra la imagen
-            surface = pygame.Surface((constants.SLOT_SIZE - 10, constants.SLOT_SIZE - 10), pygame.SRCALPHA)
-            surface.fill((150, 150, 150, 200))
-            self.image = surface
-            return
-
-        # Cargar y escalar imagen
-        self.image = pygame.image.load(image_path).convert_alpha()
-        self.image = pygame.transform.scale(self.image, (constants.SLOT_SIZE - 10, constants.SLOT_SIZE - 10))
-
-    def set_fill_level(self, new_level):
-        """Cambia el nivel de llenado (solo si es una cubeta)."""
-        if "bucket" not in self.name:
-            return
-        self.fill_level = max(0, min(2, new_level))
         self.update_image()
 
+    def update_image(self):
+        """Actualiza la imagen basado en los litros actuales"""
+        if "bucket" in self.name:
+            # Calcular fill_level basado en litros actuales
+            if self.current_liters <= 0:
+                self.fill_level = 0
+                filename = "bucket.png"
+            elif self.current_liters < self.max_liters / 2:
+                self.fill_level = 1
+                filename = "bucket_half.png"
+            else:
+                self.fill_level = 2
+                filename = "bucket_full.png"
+                
+            image_path = os.path.join("assets", "images", filename)
+        else:
+            image_path = self.image_path or os.path.join("assets", "images", f"{self.name}.png")
+
+        # Cargar imagen...
+        if os.path.exists(image_path):
+            self.image = pygame.image.load(image_path).convert_alpha()
+            self.image = pygame.transform.scale(self.image, (SLOT_SIZE - 10, SLOT_SIZE - 10))
+        else:
+            surface = pygame.Surface((SLOT_SIZE - 10, SLOT_SIZE - 10), pygame.SRCALPHA)
+            surface.fill((150, 150, 150, 200))
+            self.image = surface
+
+    def add_water(self, liters):
+        """Añade agua a la cubeta"""
+        space_available = self.max_liters - self.current_liters
+        actual_liters = min(liters, space_available)
+        self.current_liters += actual_liters
+        self.update_image()
+        return actual_liters
+
+    def remove_water(self, liters=10):
+        """Remueve agua de la cubeta (al beber)"""
+        actual_liters = min(liters, self.current_liters)
+        self.current_liters -= actual_liters
+        self.update_image()
+        return actual_liters
+
+    def get_water_status(self):
+        """Devuelve el estado del agua en texto"""
+        return f"{self.current_liters}/{self.max_liters}L"
+
+    # Mantén los métodos fill() y empty() para compatibilidad
     def fill(self):
-        """Aumenta el nivel de llenado."""
-        if "bucket" not in self.name:
-            return
-        self.set_fill_level(self.fill_level + 1)
+        """Llena la cubeta completamente"""
+        self.current_liters = self.max_liters
+        self.update_image()
 
     def empty(self):
-        """Reduce el nivel de llenado."""
-        if "bucket" not in self.name:
-            return
-        self.set_fill_level(self.fill_level - 1)
-
-        
+        """Vacía la cubeta completamente"""
+        self.current_liters = 0
+        self.update_image()
         
 
 class Inventory:
@@ -111,8 +110,10 @@ class Inventory:
             'bucket': os.path.join('assets', 'images', 'bucket.png'),
             'bucket_half': os.path.join('assets', 'images', 'bucket_half.png'),
             'bucket_full': os.path.join('assets', 'images', 'bucket_full.png'),
-            'pump': os.path.join('assets', 'images', 'pump.png')
-            
+            'pump': os.path.join('assets', 'images', 'pump.png'),
+            'water_tank': os.path.join('assets', 'images', 'water_tank.png'),
+            'waste_tank': os.path.join('assets', 'images', 'waste_tank.png'),
+            'empty_tank': os.path.join('assets', 'images', 'empty_tank.png')
         }
         
         
@@ -201,12 +202,22 @@ class Inventory:
                 'result_quantity': 1,
                 'requires_table': True
             },
+            'empty_tank': {
+                'pattern': [
+                    ['ingot_iron', None, 'ingot_iron'],
+                    ['ingot_iron', None, 'ingot_iron'],
+                    ['ingot_iron', 'ingot_iron', 'ingot_iron']
+                ],
+                'result': 'empty_tank',
+                'result_quantity': 1,
+                'requires_table': True
+            },
         }
 
         
         self.equippable_items = {'axe', 'work_bench', 'furnace', 'water_tank', 
                                  'farm_plot', 'pickaxe', 'bucket', 'bucket_half',
-                                 'bucket_full', 'pump'}
+                                 'bucket_full', 'pump', 'empty_tank', 'waste_tank'}
 
     def add_item(self, item_name, quantity=1):
 
@@ -677,7 +688,9 @@ class Inventory:
         )
     
     def has_axe_equipped(self):
-        return self.has_item_equipped('axe')
+        """Verifica específicamente si tiene un hacha equipada"""
+        return (self.right_hand and self.right_hand.name == 'axe') or \
+            (self.left_hand and self.left_hand.name == 'axe')
 
 
     def _return_dragged_item(self):
